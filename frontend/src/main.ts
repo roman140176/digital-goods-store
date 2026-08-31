@@ -1,11 +1,14 @@
 import './styles/app.scss'
 
 import { ApiError, createOrder, fetchProducts } from './api/client'
+import type { Product } from './api/types'
 import { mountBanner } from './ui/banner'
 import { mountCatalogMenu } from './ui/catalogMenu'
 import { mountCurrencySwitcher } from './ui/currencySwitcher'
-import { hydrateIcons } from './ui/icons'
+import { renderFooter } from './ui/footer'
+import { hydrateIcons } from './ui/hydrateIcons'
 import { renderProductCards, renderTabs } from './ui/productCards'
+import { renderReviews } from './ui/reviews'
 import { renderServices } from './ui/services'
 
 /**
@@ -44,7 +47,8 @@ async function buy(sku: string, button: HTMLButtonElement): Promise<void> {
     button.disabled = false
     button.textContent = label ?? 'Купить'
 
-    const message = error instanceof ApiError ? error.message : 'Не удалось создать заказ. Проверьте, что бэкенд запущен.'
+    const message =
+      error instanceof ApiError ? error.message : 'Не удалось создать заказ. Проверьте, что бэкенд запущен.'
     window.alert(message)
   }
 }
@@ -59,27 +63,44 @@ function requireElement<T extends HTMLElement>(selector: string): T {
   return element
 }
 
+/** Ряд из пяти карточек: каталог ТЗ короче трёх ряд, поэтому идём по кругу. */
+const rowOf = (products: readonly Product[], offset: number): readonly Product[] =>
+  Array.from({ length: 5 }, (_, index) => products[(offset + index) % products.length]).filter(
+    (product): product is Product => product !== undefined,
+  )
+
 function init(): void {
   hydrateIcons(document)
 
   mountBanner(requireElement('[data-banner]'))
   renderServices(requireElement('[data-services]'))
   renderTabs(requireElement('[data-tabs]'))
+  renderReviews(requireElement('[data-reviews]'))
+  renderFooter(requireElement('[data-footer]'))
   mountCurrencySwitcher(requireElement('[data-currency-switcher]'))
-  mountCatalogMenu(
-    requireElement('[data-catalog-button]'),
-    requireElement('[data-catalog-menu]'),
-    requireElement('[data-search]'),
-  )
+  mountCatalogMenu(requireElement('[data-catalog-button]'), requireElement('[data-catalog-menu]'))
 
-  const cards = requireElement<HTMLElement>('[data-cards]')
+  const rows: readonly [string, number][] = [
+    ['[data-cards="popular"]', 0],
+    ['[data-cards="recommended"]', 5],
+    ['[data-cards="other"]', 10],
+  ]
 
   void fetchProducts()
     .then((products) => {
-      renderProductCards(cards, products.slice(0, 5), (sku, button) => void buy(sku, button))
+      if (products.length === 0) {
+        return
+      }
+
+      rows.forEach(([selector, offset]) => {
+        renderProductCards(requireElement(selector), rowOf(products, offset), (sku, button) => void buy(sku, button))
+      })
     })
     .catch(() => {
-      cards.innerHTML = '<p class="order-note">Каталог не загрузился: бэкенд недоступен. Запустите стек командой make up.</p>'
+      rows.forEach(([selector]) => {
+        requireElement(selector).innerHTML =
+          '<p class="order-note">Каталог не загрузился: бэкенд недоступен. Запустите стек командой make up.</p>'
+      })
     })
 }
 

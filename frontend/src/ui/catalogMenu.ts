@@ -1,17 +1,17 @@
 import { catalogCategories } from '../data/catalogMenu'
-import { iconChevronRight } from '../icons'
+import { iconImg, icons } from '../icons'
 
 /**
  * Интерактив №2: выпадающее меню «Каталог».
  *
  * Открывается кликом по кнопке, закрывается повторным кликом, кликом вне
- * меню и клавишей Escape. При открытии поиск переходит в активное
- * состояние — так показано на втором скриншоте ТЗ.
+ * меню и клавишей Escape. Вид поиска при этом не меняется: в макете
+ * закрытое и открытое состояния шапки идентичны.
  */
-export function mountCatalogMenu(button: HTMLElement, panel: HTMLElement, search: HTMLElement): void {
+export function mountCatalogMenu(button: HTMLElement, panel: HTMLElement): void {
   const renderGroup = (title: string, links: readonly string[]): string => `
     <div class="catalog-menu__group">
-      <h3 class="catalog-menu__group-title">${title}<span class="catalog-menu__chevron">${iconChevronRight()}</span></h3>
+      <h3 class="catalog-menu__group-title">${title}<span class="catalog-menu__chevron">${iconImg(icons.chevron, 12)}</span></h3>
       <ul class="catalog-menu__links">
         ${links.map((link) => `<li><a class="catalog-menu__link" href="#">${link}</a></li>`).join('')}
       </ul>
@@ -44,7 +44,7 @@ export function mountCatalogMenu(button: HTMLElement, panel: HTMLElement, search
             (category, index) => `
           <button class="catalog-menu__category" type="button" role="tab" data-category="${index}" aria-selected="${index === 0}">
             <span>${category.title}</span>
-            <span class="catalog-menu__chevron">${iconChevronRight()}</span>
+            <span class="catalog-menu__chevron">${iconImg(icons.chevron, 12)}</span>
           </button>`,
           )
           .join('')}
@@ -73,7 +73,6 @@ export function mountCatalogMenu(button: HTMLElement, panel: HTMLElement, search
   const setOpen = (open: boolean): void => {
     panel.classList.toggle('is-open', open)
     button.setAttribute('aria-expanded', String(open))
-    search.classList.toggle('is-active', open)
   }
 
   const isOpen = (): boolean => panel.classList.contains('is-open')

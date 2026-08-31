@@ -11,20 +11,40 @@
     <div class="canvas">
       <header class="header">
         <div class="header__inner">
-          <button class="catalog-button" type="button" data-catalog-button aria-expanded="false" aria-controls="catalog-menu">
-            <span data-icon="grid"></span>
+          <button
+            class="catalog-button"
+            type="button"
+            data-catalog-button
+            aria-expanded="false"
+            aria-controls="catalog-menu"
+          >
+            <span data-icon="catalog"></span>
             <span>Каталог</span>
           </button>
 
-          <div class="search" data-search>
+          <div class="search">
             <div class="search__field">
-              <input class="search__input" type="search" placeholder="Игра, приложение или услуга..." aria-label="Поиск" />
-              <button class="search__favorite" type="button" aria-label="Избранное"><span data-icon="heart"></span></button>
+              <input
+                class="search__input"
+                type="search"
+                placeholder="Игра, приложение или услуга..."
+                aria-label="Поиск"
+              />
             </div>
-            <button class="search__submit" type="button" aria-label="Найти"><span data-icon="search"></span></button>
+            <button class="search__favorite" type="button" aria-label="Избранное">
+              <span data-icon="favorite"></span>
+            </button>
+            <button class="search__submit" type="button" aria-label="Найти">
+              <span data-icon="search"></span>
+            </button>
           </div>
 
-          <button class="account" type="button" aria-label="Профиль"><span data-icon="profile"></span></button>
+          <button class="account" type="button" aria-label="Профиль">
+            <span class="account__icon">
+              <span data-icon="profile-body"></span>
+              <span data-icon="profile-head"></span>
+            </span>
+          </button>
         </div>
 
         <div class="catalog-menu" id="catalog-menu" data-catalog-menu></div>
@@ -39,28 +59,39 @@
 
           <div class="steam">
             <div class="steam__app">
-              <span class="steam__logo">
-                <picture>
-                  <source srcset="./assets/icons/steam.webp 1x, ./assets/icons/steam@2x.webp 2x" type="image/webp" />
-                  <img src="./assets/icons/steam.webp" alt="" width="76" height="76" />
-                </picture>
+              <span class="service__wrapper">
+                <span class="service__tile" style="--service-border: #1482b3">
+                  <picture>
+                    <source srcset="./assets/icons/steam.webp 1x, ./assets/icons/steam@2x.webp 2x" type="image/webp" />
+                    <img src="./assets/icons/steam.webp" alt="" width="68" height="68" />
+                  </picture>
+                </span>
               </span>
-              <div>
-                <div class="steam__title">Пополнение Steam <span class="steam__bonus">5%</span></div>
-                <button class="steam__promo" type="button">Ввести промокод <span data-icon="chevron-down"></span></button>
+
+              <div class="steam__info">
+                <div class="steam__title-row">
+                  <span class="steam__title">Пополнение Steam</span>
+                  <span class="steam__bonus">5%</span>
+                </div>
+                <button class="steam__promo" type="button">
+                  Ввести промокод
+                  <span data-icon="chevron"></span>
+                </button>
               </div>
             </div>
 
             <label class="steam__login">
-              <span data-icon="profile"></span>
-              <input type="text" placeholder="Логин Steam" aria-label="Логин Steam" />
+              <span class="steam__login-field">
+                <span data-icon="login-profile"></span>
+                <input type="text" placeholder="Логин Steam" aria-label="Логин Steam" />
+              </span>
               <button class="steam__hint" type="button" aria-label="Где найти логин">i</button>
             </label>
 
             <div class="steam__amount">
               <span class="steam__amount-label">
-                <span class="steam__amount-icon" data-icon="ruble"></span>
-                <span class="steam__amount-text">
+                <span data-icon="ruble"></span>
+                <span>
                   <span class="steam__amount-caption">Сумма</span>
                   <span class="steam__amount-value">500₽</span>
                 </span>
@@ -83,8 +114,37 @@
             <h2 class="section__title">Популярные товары</h2>
             <div class="section__tabs" data-tabs></div>
           </div>
-          <div class="cards" data-cards></div>
+          <div class="cards" data-cards="popular"></div>
         </section>
+
+        <section class="section" aria-label="Рекомендованные товары">
+          <div class="section__head">
+            <h2 class="section__title">Рекомендованные товары</h2>
+            <button class="section__action" type="button">Показать все</button>
+          </div>
+          <div class="cards" data-cards="recommended"></div>
+        </section>
+
+        <section class="section" aria-label="Другие товары">
+          <div class="section__head">
+            <h2 class="section__title">Другие товары</h2>
+            <button class="section__action" type="button">Показать все</button>
+          </div>
+          <div class="cards" data-cards="other"></div>
+        </section>
+
+        <section aria-label="Последние отзывы">
+          <div class="reviews-head">
+            <div class="reviews-head__text">
+              <h2 class="reviews-head__title">Последние отзывы</h2>
+              <p class="reviews-head__subtitle">Все отзывы взяты с независимой площадки</p>
+            </div>
+            <button class="section__action" type="button">Показать все</button>
+          </div>
+          <div class="reviews" data-reviews></div>
+        </section>
+
+        <footer class="footer" data-footer></footer>
       </main>
     </div>
 

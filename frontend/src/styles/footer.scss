@@ -1,0 +1,155 @@
+// Футер 1200×234: три ряда, разделённые границами, радиус 18.
+.footer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: 234px;
+  margin-top: 32px;
+  margin-bottom: 24px;
+  padding: 24px 24px 0;
+  border-radius: 18px;
+  background: var(--surface);
+  filter: drop-shadow(var(--shadow-footer));
+}
+
+.footer__row {
+  width: 100%;
+}
+
+.footer__row--top {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 25px;
+  border-bottom: 1px solid var(--line-footer);
+}
+
+.footer__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 28px;
+  align-items: flex-start;
+  height: 18px;
+}
+
+.footer__nav a {
+  color: var(--ink-footer);
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: opacity 0.16s var(--ease);
+
+  &:hover {
+    opacity: 0.7;
+  }
+}
+
+.footer__row--middle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 14px;
+  align-items: center;
+  padding: 22px 0;
+}
+
+.footer__social {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  transition: opacity 0.16s var(--ease);
+
+  &:hover {
+    opacity: 0.75;
+  }
+}
+
+.footer__social--boxed {
+  border-radius: 10px;
+  background: #f3f5f9;
+}
+
+.footer__payments {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-left: auto;
+}
+
+.footer__badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  min-width: 49px;
+  padding: 1px 12.76px;
+  border: 1px solid var(--line-badge);
+  border-radius: 7.84px;
+  background: var(--surface);
+  filter: drop-shadow(var(--shadow-badge));
+}
+
+.footer__badge--visa {
+  padding: 1px 11.49px;
+  color: #1a1f71;
+  font-size: 14.1px;
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: -0.3393px;
+  transform: skewX(-8deg);
+}
+
+.footer__badge--mir {
+  color: #0f9d58;
+  font-size: 12.9px;
+  font-weight: 800;
+  letter-spacing: -0.28px;
+}
+
+.footer__badge--mastercard {
+  gap: 0;
+}
+
+.footer__mc-circle {
+  width: 17.36px;
+  height: 17.36px;
+  border-radius: 8.68px;
+}
+
+.footer__mc-circle--red {
+  background: #eb001b;
+}
+
+.footer__mc-circle--yellow {
+  margin-left: -6px;
+  background: #f79e1b;
+  mix-blend-mode: multiply;
+}
+
+.footer__row--bottom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 19px;
+  border-top: 1px solid var(--line-footer);
+}
+
+.footer__legal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 26px;
+  align-items: flex-start;
+  height: 17px;
+}
+
+.footer__legal a {
+  color: var(--ink-legal);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: opacity 0.16s var(--ease);
+
+  &:hover {
+    opacity: 0.7;
+  }
+}

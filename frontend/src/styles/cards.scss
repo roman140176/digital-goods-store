@@ -1,83 +1,134 @@
 .section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   margin-top: 16px;
-  padding-bottom: 24px;
 }
 
 .section__head {
   display: flex;
   align-items: center;
-  height: 34px;
+  justify-content: space-between;
+  width: 100%;
 }
 
 .section__title {
   margin: 0;
+  color: var(--ink-title);
   font-size: 20px;
   font-weight: 700;
+  line-height: 30px;
+  white-space: nowrap;
 }
 
 .section__tabs {
   display: flex;
+  flex: 1 0 0;
   gap: 8px;
-  margin-left: auto;
+  align-items: flex-start;
+  justify-content: flex-end;
+  min-width: 0;
+  padding-left: 16px;
+  overflow: auto;
+  scrollbar-width: none;
 }
 
+.section__tabs::-webkit-scrollbar {
+  display: none;
+}
+
+// Отступы подобраны так, чтобы ширины табов совпали с макетом
+// (иконка на 14 слева, зазор 6, правое поле 13).
 .tab {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   height: 34px;
-  padding: 0 14px;
-  border: 1px solid var(--line-strong);
+  padding: 0 13px 0 14px;
+  border: 0;
   border-radius: 10px;
-  background: var(--surface);
+  background: var(--chip);
   color: var(--ink-muted);
   font-size: 13px;
-  transition: border-color 0.18s var(--ease), color 0.18s var(--ease);
+  font-weight: 700;
+  line-height: 19.5px;
+  white-space: nowrap;
+  transition: filter 0.16s var(--ease);
 
   &:hover {
-    border-color: var(--ink-faint);
-    color: var(--ink-soft);
+    filter: brightness(0.96);
   }
+}
 
-  &[aria-pressed='true'] {
-    border-color: var(--ink);
-    background: var(--ink);
-    color: #fff;
+.tab img {
+  opacity: 0.5;
+}
+
+.tab[aria-pressed='true'] {
+  background: var(--ink);
+  box-shadow: var(--shadow-tab);
+  color: #fff;
+}
+
+.tab[aria-pressed='true'] img {
+  opacity: 1;
+}
+
+.section__action {
+  flex-shrink: 0;
+  height: 34px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--chip);
+  color: var(--ink-title);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 19.5px;
+  white-space: nowrap;
+  transition: filter 0.16s var(--ease);
+
+  &:hover {
+    filter: brightness(0.96);
   }
 }
 
 .cards {
-  display: grid;
-  grid-template-columns: repeat(5, 227.27px);
+  display: flex;
   gap: 16px;
-  margin-top: 16px;
+  align-items: stretch;
+  width: 100%;
 }
 
-// Интерактив №5: подъём, тень и обводка карточки при наведении.
+// Интерактив №5: подъём и усиленная тень при наведении.
 .card {
   display: flex;
+  flex: 1 0 0;
   flex-direction: column;
-  border: 1px solid var(--line);
-  border-radius: 14px;
+  min-width: 0;
+  border-radius: 16.469px;
   background: var(--surface);
+  box-shadow: var(--shadow-card);
   overflow: clip;
-  transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease), border-color 0.2s var(--ease);
+  transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease);
 
   &:hover {
     transform: translateY(-4px);
-    border-color: var(--line-strong);
-    box-shadow: var(--shadow-hover);
+    box-shadow: 0 18px 34px rgb(20 40 80 / 0.16);
   }
 }
 
 .card__media {
-  aspect-ratio: 227 / 152;
+  height: 151.716px;
   overflow: clip;
 }
 
+// Кадрирование как в макете: картинка шире контейнера на 10% и сдвинута.
 .card__media img {
-  width: 100%;
+  width: 110%;
   height: 100%;
+  margin-left: -5%;
   object-fit: cover;
   transition: transform 0.35s var(--ease);
 }
@@ -88,55 +139,60 @@
 
 .card__body {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px 12px;
+  gap: 11.528px;
+  padding: 12.166px 13.175px 14.822px;
 }
 
 .card__meta {
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.35;
-  color: var(--ink-soft);
-  text-transform: uppercase;
-  letter-spacing: 0.01em;
+  min-height: 29.643px;
+  margin: 0;
+  padding-bottom: 1.009px;
+  color: var(--ink-card);
+  font-size: 10.705px;
+  font-weight: 800;
+  line-height: 14.451px;
 }
 
 .card__prices {
   display: flex;
+  gap: 8.234px;
   align-items: baseline;
-  gap: 8px;
+  white-space: nowrap;
 }
 
 .card__price {
-  font-size: 16px;
+  color: var(--price);
+  font-size: 19.762px;
   font-weight: 700;
-  color: var(--accent);
+  line-height: 19.762px;
 }
 
 .card__price-old {
-  font-size: 12px;
   color: var(--ink-faint);
+  font-size: 11.528px;
+  font-weight: 700;
   text-decoration: line-through;
 }
 
 .card__buy {
-  height: 34px;
+  height: 42.818px;
   margin-top: auto;
   border: 0;
-  border-radius: 10px;
+  border-radius: 11.528px;
   background: var(--ink);
   color: #fff;
-  font-size: 13px;
-  font-weight: 600;
-  transition: background 0.18s var(--ease);
+  font-size: 12.351px;
+  font-weight: 800;
+  transition: opacity 0.16s var(--ease);
 
   &:hover:not(:disabled) {
-    background: #24262c;
+    opacity: 0.88;
   }
 
   &:disabled {
-    opacity: 0.6;
+    opacity: 0.55;
     cursor: progress;
   }
 }

@@ -1,75 +1,126 @@
-// Блок сервисов и пополнения Steam: 1200x253, внутренние отступы 20.
+// Блок сервисов и пополнения: padding 20, gap 16, радиус 16.
 .services {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   margin-top: 16px;
   padding: 20px;
   border-radius: 16px;
   background: var(--surface);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-services);
 }
 
+// В макете ряд иконок распределён по ширине, а не фиксированным гапом.
 .services__icons {
   display: flex;
-  gap: 32.4px; // шаг 108.4 при плитке 76
+  align-items: flex-start;
+  justify-content: space-between;
+  width: 100%;
 }
 
 .service {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   width: 76px;
   padding: 0;
   border: 0;
   background: none;
-  text-align: center;
+}
+
+// Паддинг 2 у обёртки даёт концентричные радиусы: 14 снаружи, 16 внутри.
+.service__wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 14px;
+  transition: transform 0.22s var(--ease);
 }
 
 .service__tile {
-  width: 76px;
-  height: 76px;
-  border-radius: 18px;
+  width: 72px;
+  height: 72px;
+  border: 2px solid var(--service-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-icon);
   overflow: clip;
-  background: var(--field);
-  transition: transform 0.22s var(--ease), box-shadow 0.22s var(--ease);
 }
 
+// Размеры заданы явно: картинка занимает 68×68 внутри рамки и не тянется.
 .service__tile img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.service__more {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  color: var(--ink-faint);
+// Интерактив №4: плавное выделение при наведении.
+.service:hover .service__wrapper,
+.service:focus-visible .service__wrapper {
+  transform: translateY(-4px) scale(1.04);
 }
 
-// Интерактив №4: плавное выделение иконок при наведении.
-.service:hover .service__tile,
-.service:focus-visible .service__tile {
-  transform: translateY(-4px) scale(1.05);
-  box-shadow: 0 12px 22px rgb(16 17 20 / 0.18);
+.service:hover .service__tile {
+  box-shadow: 0 10px 18px #c3cddd;
 }
 
 .service__label {
-  display: block;
-  margin-top: 8px;
-  font-size: 12px;
+  color: var(--ink-body);
+  font-size: 16px;
+  font-weight: 700;
   line-height: 24px;
-  color: var(--ink-soft);
+  letter-spacing: -0.16px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+// PUBG в макете оформлен иначе: чёрная обёртка и белая рамка 3px.
+.service--framed .service__wrapper {
+  border-radius: 16px;
+  background: var(--ink);
+  filter: drop-shadow(var(--shadow-icon-flat));
+}
+
+.service--framed .service__tile {
+  border: 3px solid #fff;
+  box-shadow: none;
+}
+
+.service--framed .service__label {
+  color: var(--ink);
+}
+
+// Плитка «ещё 841»: подложка, своя рамка и глиф 28px по центру.
+.service--more .service__tile {
+  display: grid;
+  place-items: center;
+  background: var(--line-soft);
+  border-color: var(--line-more);
+  box-shadow: none;
+}
+
+.service--more .service__tile img {
+  width: 28px;
+  height: 28px;
+}
+
+.service--more .service__label {
+  color: var(--ink-muted);
 }
 
 .services__divider {
+  width: 100%;
   height: 1px;
-  margin: 16px 0 17px;
   background: var(--line);
 }
 
+// Ряд пополнения: сетка из макета. Крайние колонки фиксированы,
+// средние делят остаток в пропорции 1 : 1.2 — именно это даёт
+// ширины 284.77 и 341.72 при контейнере 1160.
 .steam {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: 285.51px minmax(0, 1fr) minmax(0, 1.2fr) 200px;
+  gap: 0 16px;
   height: 72px;
 }
 
@@ -77,58 +128,98 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  width: 290px;
+  justify-self: start;
+  align-self: center;
 }
 
-.steam__logo {
-  width: 76px;
-  height: 76px;
-  border-radius: 18px;
-  overflow: clip;
+.steam__info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: center;
 }
 
-.steam__title {
+.steam__title-row {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.steam__title {
+  color: var(--ink-body);
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
+  line-height: 27px;
+  letter-spacing: -0.48px;
+  white-space: nowrap;
 }
 
 .steam__bonus {
-  padding: 2px 8px;
-  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 9999px;
   background: var(--badge);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
+  line-height: 11px;
 }
 
 .steam__promo {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 6px;
+  justify-content: center;
+  gap: 2px;
+  align-self: flex-start;
   padding: 4px 12px;
   border: 0;
   border-radius: 8px;
-  background: #e8effb;
-  color: #1e40af;
+  background: var(--promo-bg);
+  color: var(--ink);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.steam__promo img {
+  transform: rotate(90deg);
+}
+
+.steam__login,
+.steam__amount {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  align-self: center;
+  justify-self: stretch;
+  height: 64px;
+  border-radius: 12px;
+  background: var(--chip);
 }
 
 .steam__login {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 285px;
-  height: 64px;
-  margin-left: 11.5px;
+  max-width: 300px;
   padding: 0 20px;
-  border-radius: var(--radius-md);
-  background: var(--field);
-  color: var(--ink-muted);
+}
+
+.steam__amount {
+  max-width: 380px;
+  padding: 0 16px;
+}
+
+.steam__login-field {
+  display: flex;
+  flex: 1 0 0;
+  align-items: center;
+  min-width: 0;
+}
+
+.steam__login-field img {
+  margin-right: 12px;
 }
 
 .steam__login input {
@@ -136,15 +227,16 @@
   min-width: 0;
   border: 0;
   background: transparent;
-  font: inherit;
-  color: var(--ink);
-
-  &:focus {
-    outline: none;
-  }
+  color: var(--ink-body);
+  font-size: 15px;
+  font-weight: 700;
 
   &::placeholder {
     color: var(--ink-muted);
+  }
+
+  &:focus {
+    outline: none;
   }
 }
 
@@ -153,70 +245,63 @@
   place-items: center;
   width: 20px;
   height: 20px;
+  margin-left: 8px;
+  padding: 0;
   border: 0;
-  border-radius: 50%;
-  background: #dcdfe6;
-  color: var(--ink-soft);
-  font-size: 11px;
+  border-radius: 6px;
+  background: var(--info-bg);
+  color: #fff;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 12px;
   font-weight: 700;
-  font-style: italic;
-}
-
-.steam__amount {
-  display: flex;
-  align-items: center;
-  width: 342px;
-  height: 64px;
-  margin-left: 16px;
-  padding: 0 16px;
-  border-radius: var(--radius-md);
-  background: var(--field);
+  line-height: 12px;
 }
 
 .steam__amount-label {
   display: flex;
   align-items: center;
-  gap: 12px;
 }
 
-.steam__amount-icon {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  color: var(--ink-muted);
+.steam__amount-label img {
+  margin-right: 12px;
 }
 
 .steam__amount-caption {
-  font-size: 12px;
   color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
 }
 
 .steam__amount-value {
-  font-size: 14px;
-  font-weight: 600;
+  padding-top: 2px;
+  color: var(--ink-body);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 18px;
 }
 
-// Интерактив №3: переключатель валют, только активное состояние.
+// Интерактив №3: переключатель валют, меняется только активное состояние.
 .currency {
   display: flex;
   gap: 6px;
-  margin-left: auto;
+  margin-left: 12px;
 }
 
 .currency__button {
   width: 36px;
   height: 36px;
   border: 0;
-  border-radius: var(--radius-sm);
-  background: #e6e8ee;
+  border-radius: 8px;
+  background: var(--line);
   color: var(--ink-muted);
   font-size: 16px;
-  font-weight: 600;
-  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+  font-weight: 700;
+  line-height: 24px;
+  transition: background 0.16s var(--ease), color 0.16s var(--ease);
 
   &:hover {
-    background: #dcdfe6;
+    filter: brightness(0.96);
   }
 
   &[aria-pressed='true'] {
@@ -226,22 +311,24 @@
 }
 
 .steam__pay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
   width: 200px;
   height: 64px;
-  margin-left: 16px;
+  padding: 0 32px;
   border: 0;
-  border-radius: var(--radius-md);
+  border-radius: 12px;
   background: var(--ink);
   color: #fff;
   font-size: 16px;
-  font-weight: 600;
-  transition: background 0.18s var(--ease);
+  font-weight: 700;
+  line-height: 27px;
+  white-space: nowrap;
+  transition: opacity 0.16s var(--ease);
 
   &:hover {
-    background: #24262c;
+    opacity: 0.88;
   }
-}
-
-.steam__amount-text {
-  display: grid;
 }

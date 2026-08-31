@@ -1,34 +1,56 @@
-// Токены снятые с макета: фон страницы, полотно карточки 1280,
-// контейнер 1200, чёрные акценты, зелёная цена.
+// Токены сняты из макета через design context, а не подобраны на глаз.
+// Каждое значение соответствует конкретному узлу Figma.
 :root {
+  // Полотно и поверхности
   --page: #f4f5f7;
   --surface: #ffffff;
-  --surface-muted: #fdfdfd;
 
-  --ink: #101114;
-  --ink-soft: #3f3f46;
-  --ink-muted: #71717a;
-  --ink-faint: #a1a1aa;
+  // Текст
+  --ink: #000000; // кнопки, активные состояния
+  --ink-card: #14181d; // описание в карточке товара
+  --ink-title: #1f2937; // заголовки секций, имя автора отзыва
+  --ink-body: #363636; // подписи иконок, заголовок Steam, сумма
+  --ink-muted: #8a94a6; // неактивные табы, плейсхолдеры инпутов
+  --ink-soft: #6b7280; // текст отзыва
+  --ink-faint: #9ca3af; // старая цена, дата отзыва
+  --ink-subtle: #8a8a8b; // подзаголовок блока отзывов
+  --ink-footer: #374151; // навигация футера
+  --ink-legal: #6b7486; // правовые ссылки футера
+  --search-placeholder: #76829b;
 
-  --line: #f1f2f4;
-  --line-strong: #e4e4e7;
-  --field: #f4f5f7;
-  --chip: #f5f5f5;
+  // Линии и подложки
+  --line: #e8eaed; // разделитель, неактивная валюта
+  --line-soft: #f2f4f7; // граница шапки, кнопка профиля, плитка «ещё»
+  --line-footer: #eef1f6;
+  --line-review: #f2f4f6;
+  --line-nav: #e5e9f1; // рамка пилюли со стрелками
+  --line-more: #dfe5ef;
+  --line-badge: #e7eaf0; // рамка платёжных бейджей
+  --chip: #f4f5f7; // табы, инпуты, «Показать все»
+  --favorite-bg: #eff1f5;
+  --review-quote-bg: #f1f2f4;
+  --promo-bg: rgb(38 139 243 / 0.1);
+  --info-bg: #a0a8b5;
 
-  --accent: #16a34a;
-  --badge: #22c55e;
-  --favorite: #4f5b76;
+  // Акценты
+  --price: #4c9a2a;
+  --badge: #6eb83f;
 
+  // Тени
+  --shadow-services: 0 10px 17px rgb(20 40 80 / 0.08);
+  --shadow-card: 0 11.528px 24.703px rgb(20 40 80 / 0.1);
+  --shadow-review: 0 8px 13px rgb(15 23 42 / 0.06);
+  --shadow-footer: 0 20px 25px rgb(20 30 60 / 0.08);
+  --shadow-icon: 0 4px 8px #d1d9e4;
+  --shadow-icon-flat: 0 4px 4px #d1d9e4;
+  --shadow-tab: 0 1px 1px rgb(59 130 246 / 0.2);
+  --shadow-badge: 0 1px 1px rgb(20 30 60 / 0.06);
+  --shadow-menu: 0 12px 40px rgb(16 17 20 / 0.12);
+
+  // Геометрия макета
   --canvas-width: 1280px;
   --container-width: 1200px;
   --header-height: 80px;
-  --radius-lg: 20px;
-  --radius-md: 12px;
-  --radius-sm: 8px;
-
-  --shadow-card: 0 1px 2px rgb(16 17 20 / 0.04), 0 8px 24px rgb(16 17 20 / 0.06);
-  --shadow-hover: 0 2px 6px rgb(16 17 20 / 0.08), 0 16px 32px rgb(16 17 20 / 0.12);
-  --shadow-menu: 0 12px 40px rgb(16 17 20 / 0.12);
 
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }

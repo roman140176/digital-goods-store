@@ -1,7 +1,7 @@
 import type { Product } from '../api/types'
 import { money } from '../format'
 import { tabs } from '../data/tabs'
-import { iconTab } from '../icons'
+import { iconImg, tabIcons } from '../icons'
 
 const escapeHtml = (value: string): string =>
   value.replace(/[&<>"']/g, (char) => {
@@ -11,8 +11,8 @@ const escapeHtml = (value: string): string =>
   })
 
 /**
- * Зачёркнутая цена в макете декоративная: в данных ТЗ старой цены нет.
- * Считается от текущей, чтобы не ломать вёрстку карточки.
+ * Зачёркнутая цена в макете декоративная: старой цены в данных ТЗ нет,
+ * она считается от текущей, чтобы не ломать вёрстку карточки.
  */
 const decorativeOldPrice = (minor: number): number => Math.round((minor * 1.6) / 10000) * 10000
 
@@ -21,7 +21,7 @@ export function renderTabs(root: HTMLElement): void {
     .map(
       (tab, index) => `
     <button class="tab" type="button" aria-pressed="${index === 0}">
-      ${iconTab(tab.icon)}<span>${tab.label}</span>
+      ${iconImg(tabIcons[tab.icon] ?? '', 14)}<span>${tab.label}</span>
     </button>`,
     )
     .join('')
@@ -43,7 +43,7 @@ export function renderProductCards(
         </picture>
       </div>
       <div class="card__body">
-        <p class="card__meta" title="${escapeHtml(product.name)}">${escapeHtml(product.name)} · РФ+СНГ</p>
+        <p class="card__meta">${escapeHtml(product.name)}<br>РФ+СНГ</p>
         <div class="card__prices">
           <span class="card__price">${money(product.price_minor, product.currency)}</span>
           <span class="card__price-old">${money(decorativeOldPrice(product.price_minor), product.currency)}</span>

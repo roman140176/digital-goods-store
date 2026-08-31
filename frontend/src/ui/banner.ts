@@ -1,5 +1,5 @@
 import { slides } from '../data/slides'
-import { iconArrowLeft, iconArrowRight } from '../icons'
+import { iconImg, icons } from '../icons'
 
 const AUTOPLAY_MS = 5000
 
@@ -31,10 +31,9 @@ export function mountBanner(root: HTMLElement): void {
         )
         .join('')}
     </div>
-    <div class="banner__notch"></div>
     <div class="banner__nav">
-      <button class="banner__arrow" type="button" data-direction="-1" aria-label="Предыдущий слайд">${iconArrowLeft()}</button>
-      <button class="banner__arrow" type="button" data-direction="1" aria-label="Следующий слайд">${iconArrowRight()}</button>
+      <button class="banner__arrow" type="button" data-direction="-1" aria-label="Предыдущий слайд">${iconImg(icons.arrowPrev, 22)}</button>
+      <button class="banner__arrow" type="button" data-direction="1" aria-label="Следующий слайд">${iconImg(icons.arrowNext, 22)}</button>
     </div>
     <div class="banner__dots" role="tablist" aria-label="Слайды баннера">
       ${slides

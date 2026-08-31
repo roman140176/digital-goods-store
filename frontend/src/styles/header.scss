@@ -1,138 +1,159 @@
-// Геометрия шапки снята с макета: пустое поле слева 192px (логотипа в макете
-// нет), кнопка каталога 120x44, поиск 688x44, профиль 44x44.
+// Шапка 80px: белая полоса шириной полотна с нижней границей.
+// Элементы позиционируются от края полотна ровно теми отступами, что в
+// макете: кнопка каталога 232, поиск 428, профиль 1196, все top 18.
 .header {
   position: relative;
   z-index: 30;
   height: var(--header-height);
-  display: flex;
-  align-items: center;
   background: var(--surface);
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .header__inner {
-  display: flex;
-  align-items: center;
-  width: var(--container-width);
+  position: relative;
+  width: var(--canvas-width);
+  height: 100%;
   margin: 0 auto;
-  padding-left: 192px;
 }
 
 .catalog-button {
-  display: inline-flex;
+  position: absolute;
+  top: 18px;
+  left: 232px;
+  display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   width: 120px;
   height: 44px;
-  padding: 0 16px;
   border: 0;
-  border-radius: var(--radius-md);
+  border-radius: 10px;
   background: var(--ink);
   color: #fff;
   font-size: 14px;
   font-weight: 600;
-  transition: background 0.18s var(--ease), transform 0.18s var(--ease);
+  transition: opacity 0.16s var(--ease);
 
   &:hover {
-    background: #24262c;
-  }
-
-  &:active {
-    transform: scale(0.98);
+    opacity: 0.88;
   }
 }
 
+// Поиск: чёрная подложка 688×44 и белое поле 642×40 внутри — в макете
+// рамка получается именно так, отдельного border у поля нет.
 .search {
-  display: flex;
-  align-items: center;
+  position: absolute;
+  top: 18px;
+  left: 428px;
   width: 688px;
   height: 44px;
-  margin-left: 76px;
-  padding: 0 2px;
-  border: 2px solid transparent;
-  border-radius: var(--radius-md);
-  background: var(--field);
-  transition: border-color 0.18s var(--ease), background 0.18s var(--ease);
-
-  // Открытый каталог переводит поиск в активное состояние — так на макете.
-  &.is-active {
-    background: var(--surface);
-    border-color: var(--ink);
-  }
+  border-radius: 10px;
+  background: var(--ink);
 }
 
 .search__field {
+  position: absolute;
+  top: 2px;
+  left: 2px;
   display: flex;
   align-items: center;
   width: 642px;
-  height: 36px;
+  height: 40px;
+  border-radius: 8px;
+  background: var(--surface);
 }
 
 .search__input {
   flex: 1;
   min-width: 0;
-  height: 36px;
-  padding: 0 10px;
+  height: 100%;
+  padding: 0 12px;
   border: 0;
+  border-radius: 8px;
   background: transparent;
-  font: inherit;
-  color: var(--ink);
+  color: var(--ink-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.36px;
+
+  &::placeholder {
+    color: var(--search-placeholder);
+  }
 
   &:focus {
     outline: none;
   }
-
-  &::placeholder {
-    color: var(--ink-muted);
-  }
-}
-
-.search__favorite,
-.search__submit {
-  display: grid;
-  place-items: center;
-  border: 0;
-  background: transparent;
-  transition: background 0.18s var(--ease), color 0.18s var(--ease);
 }
 
 .search__favorite {
+  position: absolute;
+  top: 6px;
+  right: 48px;
+  display: grid;
+  place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-sm);
-  background: #e6e8ee;
-  color: var(--favorite);
+  border: 0;
+  border-radius: 6px;
+  background: var(--favorite-bg);
+  transition: filter 0.16s var(--ease);
 
-  .search.is-active & {
-    background: var(--favorite);
-    color: #fff;
+  &:hover {
+    filter: brightness(0.95);
   }
 }
 
 .search__submit {
-  width: 42px;
-  height: 36px;
-  border-radius: 10px;
-  color: var(--ink);
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  transition: opacity 0.16s var(--ease);
 
-  .search.is-active & {
-    background: var(--ink);
-    color: #fff;
+  &:hover {
+    opacity: 0.75;
   }
 }
 
 .account {
-  display: grid;
-  place-items: center;
+  position: absolute;
+  top: 18px;
+  left: 1196px;
   width: 44px;
   height: 44px;
-  margin-left: 80px;
   border: 0;
-  border-radius: var(--radius-md);
-  background: var(--field);
-  color: var(--ink-soft);
-  transition: background 0.18s var(--ease);
+  border-radius: 10px;
+  background: var(--line-soft);
+  transition: filter 0.16s var(--ease);
 
   &:hover {
-    background: var(--line-strong);
+    filter: brightness(0.96);
   }
+}
+
+// Иконка профиля в макете собрана из двух векторов со своими отступами.
+.account__icon {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 20px;
+  height: 20px;
+}
+
+.account__icon img {
+  position: absolute;
+  width: auto;
+  height: auto;
+}
+
+.account__icon img:first-child {
+  inset: 53.13% 17.72% 11.39% 17.7%;
+}
+
+.account__icon img:last-child {
+  inset: 9.37% 30.21% 51.04% 30.2%;
 }

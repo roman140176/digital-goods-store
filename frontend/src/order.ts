@@ -3,7 +3,7 @@ import './styles/app.scss'
 import { ApiError, fetchOrder, simulatePayment } from './api/client'
 import type { Order } from './api/types'
 import { dateTime, money } from './format'
-import { hydrateIcons } from './ui/icons'
+import { hydrateIcons } from './ui/hydrateIcons'
 
 /**
  * Страница статуса заказа.
