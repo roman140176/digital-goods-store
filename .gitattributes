@@ -1,0 +1,9 @@
+# Проект собирается в Linux-контейнерах: переводы строк только LF,
+# иначе shebang в скриптах и конфигах ломается при клонировании под Windows.
+* text=auto eol=lf
+
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.webp binary
+*.ico  binary
