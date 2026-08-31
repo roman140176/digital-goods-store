@@ -1,14 +1,27 @@
 import type { Product } from '../api/types'
-import { money } from '../format'
+import { escapeHtml, money } from '../format'
 import { tabs } from '../data/tabs'
 import { iconImg, tabIcons } from '../icons'
 
-const escapeHtml = (value: string): string =>
-  value.replace(/[&<>"']/g, (char) => {
-    const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+/**
+ * Названия карточек в макете оформлены эмодзи-акцентами
+ * («💥 DOOM 2016 💀 STEAM KEY 🔑»), а каталог ТЗ даёт сухие названия.
+ * Оформляется только витрина: в заказе остаётся имя товара из каталога.
+ * Квалификатор вроде «STEAM KEY» не добавляем — с ним ни одно название
+ * каталога не влезает в строку 200.92px, а в макете строка одна.
+ */
+const titleDecor: Record<Product['type'], readonly [string, string]> = {
+  key: ['💥', '💀🔑'],
+  topup: ['⚡', '💳🚀'],
+  subscription: ['🎁', '⭐🔥'],
+  giftcard: ['🎴', '💎🎯'],
+}
 
-    return map[char] ?? char
-  })
+const cardTitle = (product: Product): string => {
+  const [lead, tail] = titleDecor[product.type]
+
+  return `${lead} ${product.name} ${tail}`
+}
 
 /**
  * Зачёркнутая цена в макете декоративная: старой цены в данных ТЗ нет,
@@ -36,6 +49,8 @@ export function renderProductCards(
     .map(
       (product) => `
     <article class="card">
+      <!-- Картинка одна на все плитки, как в макете: пути из каталога ТЗ
+           (assets/steam.png и прочие) в задании не поставляются. -->
       <div class="card__media">
         <picture>
           <source srcset="./assets/card.webp 1x, ./assets/card@2x.webp 2x" type="image/webp">
@@ -43,7 +58,7 @@ export function renderProductCards(
         </picture>
       </div>
       <div class="card__body">
-        <p class="card__meta">${escapeHtml(product.name)}<br>РФ+СНГ</p>
+        <p class="card__meta"><span class="card__name">${escapeHtml(cardTitle(product))}</span>РФ+СНГ</p>
         <div class="card__prices">
           <span class="card__price">${money(product.price_minor, product.currency)}</span>
           <span class="card__price-old">${money(decorativeOldPrice(product.price_minor), product.currency)}</span>

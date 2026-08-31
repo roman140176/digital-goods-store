@@ -145,6 +145,16 @@
   padding: 12.166px 13.175px 14.822px;
 }
 
+// Название занимает первую строку, регион — вторую: в макете текстовый блок
+// ровно 29px при line-height 14.451. Длинные названия каталога подрезаются,
+// иначе строка переносится и карточка съезжает относительно макета.
+.card__name {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .card__meta {
   min-height: 29.643px;
   margin: 0;

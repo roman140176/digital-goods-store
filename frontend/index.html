@@ -5,10 +5,18 @@
     <meta name="viewport" content="width=1280" />
     <title>Магазин цифровых товаров</title>
     <meta name="description" content="Ключи, пополнения, подписки и подарочные карты для геймеров." />
-    <link rel="preload" as="image" href="./assets/banner-1@2x.webp" />
+    <link
+      rel="preload"
+      as="image"
+      href="./assets/banner-1.webp"
+      imagesrcset="./assets/banner-1.webp 1x, ./assets/banner-1@2x.webp 2x"
+      type="image/webp"
+    />
   </head>
   <body>
     <div class="canvas">
+      <h1 class="visually-hidden">Магазин цифровых товаров: ключи, пополнения, подписки и подарочные карты</h1>
+
       <header class="header">
         <div class="header__inner">
           <button
@@ -57,7 +65,7 @@
           <div class="services__icons" data-services></div>
           <div class="services__divider"></div>
 
-          <div class="steam">
+          <div class="steam" data-steam>
             <div class="steam__app">
               <span class="service__wrapper">
                 <span class="service__tile" style="--service-border: #1482b3">
@@ -73,10 +81,31 @@
                   <span class="steam__title">Пополнение Steam</span>
                   <span class="steam__bonus">5%</span>
                 </div>
-                <button class="steam__promo" type="button">
+                <button
+                  class="steam__promo"
+                  type="button"
+                  data-steam-promo-toggle
+                  aria-expanded="false"
+                  aria-controls="steam-promo"
+                >
                   Ввести промокод
                   <span data-icon="chevron"></span>
                 </button>
+
+                <!-- Этап 4: промокод. Поле раскрывается кнопкой из макета,
+                     скидку по коду считает сервер при создании заказа. -->
+                <div class="steam__promo-field" id="steam-promo" data-steam-promo-field hidden>
+                  <input
+                    class="steam__promo-input"
+                    type="text"
+                    placeholder="Промокод"
+                    aria-label="Промокод"
+                    autocomplete="off"
+                    spellcheck="false"
+                    data-steam-promo-input
+                  />
+                  <p class="steam__promo-error" data-steam-promo-error hidden></p>
+                </div>
               </div>
             </div>
 
@@ -91,7 +120,7 @@
             <div class="steam__amount">
               <span class="steam__amount-label">
                 <span data-icon="ruble"></span>
-                <span>
+                <span class="steam__amount-text">
                   <span class="steam__amount-caption">Сумма</span>
                   <span class="steam__amount-value">500₽</span>
                 </span>
@@ -105,7 +134,7 @@
               </div>
             </div>
 
-            <button class="steam__pay" type="button">Оплатить 500$</button>
+            <button class="steam__pay" type="button" data-steam-pay>Оплатить 500$</button>
           </div>
         </section>
 

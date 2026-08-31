@@ -1,3 +1,14 @@
+/**
+ * Данные из API уходят в innerHTML, поэтому экранируются здесь, а не по месту:
+ * например last_error выдачи — это строка из ответа поставщика.
+ */
+export const escapeHtml = (value: string): string =>
+  value.replace(/[&<>"']/g, (char) => {
+    const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+
+    return map[char] ?? char
+  })
+
 const rubles = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 })
 
 const symbols: Record<string, string> = { RUB: '₽', USD: '$', KZT: '₸' }

@@ -21,9 +21,15 @@
   position: absolute;
   inset: 0;
   opacity: 0;
-  transition: opacity 0.55s var(--ease);
+  // Только opacity недостаточно: кнопка внутри скрытого слайда оставалась
+  // в таб-порядке, хотя слайд помечен aria-hidden.
+  visibility: hidden;
+  transition:
+    opacity 0.55s var(--ease),
+    visibility 0.55s var(--ease);
 
   &.is-active {
+    visibility: visible;
     opacity: 1;
   }
 }

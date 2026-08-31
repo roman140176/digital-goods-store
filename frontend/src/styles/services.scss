@@ -134,6 +134,8 @@
 
 .steam__info {
   display: flex;
+  // Точка отсчёта для панели промокода.
+  position: relative;
   flex-direction: column;
   gap: 4px;
   justify-content: center;
@@ -187,6 +189,40 @@
 
 .steam__promo img {
   transform: rotate(90deg);
+}
+
+// Панель промокода абсолютная: в открытом виде она не должна двигать
+// геометрию блока пополнения, снятую из макета.
+.steam__promo-field {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  width: 220px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-services);
+}
+
+.steam__promo-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--chip);
+  color: var(--ink-body);
+  font: inherit;
+  font-size: 13px;
+}
+
+.steam__promo-error {
+  margin: 6px 0 0;
+  color: #c0392b;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .steam__login,
@@ -251,8 +287,11 @@
   border-radius: 6px;
   background: var(--info-bg);
   color: #fff;
+  // Узел 1:573: Georgia Bold Italic 12/12. Без курсива глиф читается
+  // как обычная «i» и не совпадает с макетом.
   font-family: Georgia, 'Times New Roman', serif;
   font-size: 12px;
+  font-style: italic;
   font-weight: 700;
   line-height: 12px;
 }
@@ -260,6 +299,15 @@
 .steam__amount-label {
   display: flex;
   align-items: center;
+}
+
+// Узлы 1:582 и 1:584: подпись и сумма стоят в две строки, а не в одну.
+// Колонка 43×38: «Сумма» 18px строкой, «500₽» ниже с отступом 2px.
+.steam__amount-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
 }
 
 .steam__amount-label img {

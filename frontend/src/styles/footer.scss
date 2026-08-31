@@ -18,8 +18,9 @@
 
 .footer__row--top {
   display: flex;
+  // Узел 1:10: навигация начинается от левого края ряда, не по центру.
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   padding-bottom: 25px;
   border-bottom: 1px solid var(--line-footer);
 }
