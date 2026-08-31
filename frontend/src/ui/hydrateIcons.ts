@@ -13,13 +13,6 @@ const spec: Record<string, readonly [string, number, number]> = {
   'login-profile': [icons.loginProfile, 20, 20],
   ruble: [icons.ruble, 20, 20],
   chevron: [icons.chevron, 12, 12],
-  'arrow-prev': [icons.arrowPrev, 22, 22],
-  'arrow-next': [icons.arrowNext, 22, 22],
-  more: [icons.more, 28, 28],
-  'social-1': [icons.social1, 34, 34],
-  'social-2': [icons.social2, 34, 34],
-  'social-3': [icons.social3, 34, 34],
-  'social-4': [icons.social4, 18, 18],
 }
 
 /** Подставляет экспортированные из макета иконки в места с data-icon. */

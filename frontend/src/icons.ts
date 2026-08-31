@@ -55,5 +55,5 @@ export const tabIcons: Record<string, string> = {
 }
 
 /** Иконка как разметка с явными размерами: растягивать ассеты нельзя. */
-export const iconImg = (src: string, width: number, height = width, className = ''): string =>
-  `<img src="${src}" alt="" width="${width}" height="${height}"${className === '' ? '' : ` class="${className}"`}>`
+export const iconImg = (src: string, width: number, height = width): string =>
+  `<img src="${src}" alt="" width="${width}" height="${height}">`
