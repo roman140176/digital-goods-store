@@ -117,7 +117,13 @@
   flex-wrap: wrap;
 }
 
+// Кнопкой служит и <button>, и <a> «На витрину»: у ссылки текст ложится на
+// базовую линию и в 40px по высоте не центрируется сам. Поэтому центрирование
+// задано явно, чтобы оба варианта выглядели одинаково.
 .order-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   height: 40px;
   padding: 0 18px;
   border: 0;
@@ -126,6 +132,9 @@
   color: #fff;
   font-size: 14px;
   font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
 
   &:disabled {
     opacity: 0.45;
