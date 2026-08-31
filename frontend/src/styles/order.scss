@@ -1,0 +1,169 @@
+// Страница статуса заказа: дизайн по ТЗ не требуется, нужен рабочий вид.
+.order-page {
+  padding: 32px 0 48px;
+}
+
+.order-card {
+  padding: 24px 28px;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.order-card + .order-card {
+  margin-top: 16px;
+}
+
+.order-page__title {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.order-page__id {
+  color: var(--ink-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+.order-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--chip);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.order-status__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.order-status[data-status='delivered'] {
+  background: #dcfce7;
+  color: #14532d;
+}
+
+.order-status[data-status='delivered'] .order-status__dot {
+  background: var(--accent);
+}
+
+.order-status[data-status='payment_failed'] {
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+
+.order-status[data-status='out_of_stock'],
+.order-status[data-status='delivery_failed'] {
+  background: #fef3c7;
+  color: #78350f;
+}
+
+.order-status[data-status='paid'] .order-status__dot,
+.order-status[data-status='delivering'] .order-status__dot {
+  background: #2563eb;
+  animation: order-pulse 1.1s infinite;
+}
+
+@keyframes order-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.order-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.order-grid__label {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.order-grid__value {
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.order-code {
+  margin-top: 20px;
+  padding: 18px 20px;
+  border: 1px dashed var(--accent);
+  border-radius: 12px;
+  background: #f0fdf4;
+}
+
+.order-code__value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.order-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.order-button {
+  height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+.order-button--ghost {
+  background: var(--field);
+  color: var(--ink);
+}
+
+.order-timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.order-timeline__item {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+.order-timeline__time {
+  color: var(--ink-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.order-note {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--ink-muted);
+}

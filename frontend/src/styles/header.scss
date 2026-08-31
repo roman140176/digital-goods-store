@@ -1,0 +1,138 @@
+// Геометрия шапки снята с макета: пустое поле слева 192px (логотипа в макете
+// нет), кнопка каталога 120x44, поиск 688x44, профиль 44x44.
+.header {
+  position: relative;
+  z-index: 30;
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+}
+
+.header__inner {
+  display: flex;
+  align-items: center;
+  width: var(--container-width);
+  margin: 0 auto;
+  padding-left: 192px;
+}
+
+.catalog-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 120px;
+  height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--ink);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.18s var(--ease), transform 0.18s var(--ease);
+
+  &:hover {
+    background: #24262c;
+  }
+
+  &:active {
+    transform: scale(0.98);
+  }
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  width: 688px;
+  height: 44px;
+  margin-left: 76px;
+  padding: 0 2px;
+  border: 2px solid transparent;
+  border-radius: var(--radius-md);
+  background: var(--field);
+  transition: border-color 0.18s var(--ease), background 0.18s var(--ease);
+
+  // Открытый каталог переводит поиск в активное состояние — так на макете.
+  &.is-active {
+    background: var(--surface);
+    border-color: var(--ink);
+  }
+}
+
+.search__field {
+  display: flex;
+  align-items: center;
+  width: 642px;
+  height: 36px;
+}
+
+.search__input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: var(--ink);
+
+  &:focus {
+    outline: none;
+  }
+
+  &::placeholder {
+    color: var(--ink-muted);
+  }
+}
+
+.search__favorite,
+.search__submit {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+}
+
+.search__favorite {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: #e6e8ee;
+  color: var(--favorite);
+
+  .search.is-active & {
+    background: var(--favorite);
+    color: #fff;
+  }
+}
+
+.search__submit {
+  width: 42px;
+  height: 36px;
+  border-radius: 10px;
+  color: var(--ink);
+
+  .search.is-active & {
+    background: var(--ink);
+    color: #fff;
+  }
+}
+
+.account {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-left: 80px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--field);
+  color: var(--ink-soft);
+  transition: background 0.18s var(--ease);
+
+  &:hover {
+    background: var(--line-strong);
+  }
+}

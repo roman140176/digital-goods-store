@@ -1,0 +1,110 @@
+// Интерактив №2: выпадающее меню каталога. Панель шириной во всё полотно,
+// содержимое 1200 по левому краю — так в макете.
+.catalog-menu {
+  position: absolute;
+  top: var(--header-height);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  box-shadow: var(--shadow-menu);
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.18s var(--ease), transform 0.18s var(--ease), visibility 0.18s;
+
+  &.is-open {
+    visibility: visible;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.catalog-menu__inner {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  width: var(--container-width);
+  min-height: 584px;
+}
+
+.catalog-menu__sidebar {
+  padding: 16px 0;
+  border-right: 1px solid var(--line);
+}
+
+.catalog-menu__category {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 319px;
+  height: 44px;
+  margin-bottom: 4px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 0 12px 12px 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 14px;
+  text-align: left;
+  transition: background 0.16s var(--ease), color 0.16s var(--ease);
+
+  &:hover {
+    background: var(--field);
+    color: var(--ink);
+  }
+
+  &[aria-selected='true'] {
+    background: var(--chip);
+    color: var(--ink);
+    font-weight: 600;
+  }
+}
+
+.catalog-menu__chevron {
+  color: var(--ink-faint);
+}
+
+.catalog-menu__content {
+  padding: 32px;
+}
+
+.catalog-menu__columns {
+  display: grid;
+  grid-template-columns: repeat(5, 137.6px);
+  gap: 32px;
+}
+
+.catalog-menu__group + .catalog-menu__group-standalone,
+.catalog-menu__columns + .catalog-menu__columns {
+  margin-top: 24px;
+}
+
+.catalog-menu__group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.catalog-menu__links {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.catalog-menu__link {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--ink-soft);
+  transition: color 0.16s var(--ease);
+
+  &:hover {
+    color: var(--ink);
+  }
+}

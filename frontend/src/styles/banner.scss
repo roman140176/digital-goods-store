@@ -1,0 +1,136 @@
+// Баннер 1200x263. Правый верхний угол в макете ВЫРЕЗАН под пилюлю со
+// стрелками: она не лежит поверх картинки, вокруг неё виден фон страницы.
+.banner {
+  position: relative;
+  width: var(--container-width);
+  height: 263px;
+  margin-top: 16px;
+}
+
+.banner__viewport {
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  overflow: clip;
+  background: #0b0c0f;
+}
+
+.banner__slide {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.55s var(--ease);
+
+  &.is-active {
+    opacity: 1;
+  }
+}
+
+.banner__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.banner__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 56px;
+  background: linear-gradient(90deg, rgb(11 12 15 / 0.82) 0%, rgb(11 12 15 / 0.45) 45%, rgb(11 12 15 / 0) 72%);
+  color: #fff;
+}
+
+.banner__kicker {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.72);
+}
+
+.banner__title {
+  max-width: 460px;
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.15;
+  font-weight: 700;
+}
+
+.banner__cta {
+  align-self: flex-start;
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+// Выемка: плашка цвета полотна с внутренним закруглением. Стрелки не лежат
+// поверх картинки, вокруг них просвечивает фон карточки — так в макете.
+.banner__notch {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 98px;
+  height: 48px;
+  background: var(--surface);
+  border-bottom-left-radius: 16px;
+}
+
+.banner__nav {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: 2px;
+  width: 90px;
+  height: 40px;
+  padding: 0 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.banner__arrow {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 38px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  transition: background 0.18s var(--ease);
+
+  &:hover {
+    background: var(--field);
+  }
+}
+
+.banner__dots {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  gap: 4px;
+}
+
+.banner__dot {
+  width: 20px;
+  height: 4px;
+  border: 0;
+  padding: 0;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 0.38);
+  transition: background 0.25s var(--ease);
+
+  &.is-active {
+    background: #fff;
+  }
+}

@@ -1,0 +1,247 @@
+// Блок сервисов и пополнения Steam: 1200x253, внутренние отступы 20.
+.services {
+  margin-top: 16px;
+  padding: 20px;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.services__icons {
+  display: flex;
+  gap: 32.4px; // шаг 108.4 при плитке 76
+}
+
+.service {
+  width: 76px;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: center;
+}
+
+.service__tile {
+  width: 76px;
+  height: 76px;
+  border-radius: 18px;
+  overflow: clip;
+  background: var(--field);
+  transition: transform 0.22s var(--ease), box-shadow 0.22s var(--ease);
+}
+
+.service__tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.service__more {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--ink-faint);
+}
+
+// Интерактив №4: плавное выделение иконок при наведении.
+.service:hover .service__tile,
+.service:focus-visible .service__tile {
+  transform: translateY(-4px) scale(1.05);
+  box-shadow: 0 12px 22px rgb(16 17 20 / 0.18);
+}
+
+.service__label {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 24px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.services__divider {
+  height: 1px;
+  margin: 16px 0 17px;
+  background: var(--line);
+}
+
+.steam {
+  display: flex;
+  align-items: center;
+  height: 72px;
+}
+
+.steam__app {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 290px;
+}
+
+.steam__logo {
+  width: 76px;
+  height: 76px;
+  border-radius: 18px;
+  overflow: clip;
+}
+
+.steam__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.steam__bonus {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--badge);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.steam__promo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #e8effb;
+  color: #1e40af;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.steam__login {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 285px;
+  height: 64px;
+  margin-left: 11.5px;
+  padding: 0 20px;
+  border-radius: var(--radius-md);
+  background: var(--field);
+  color: var(--ink-muted);
+}
+
+.steam__login input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: var(--ink);
+
+  &:focus {
+    outline: none;
+  }
+
+  &::placeholder {
+    color: var(--ink-muted);
+  }
+}
+
+.steam__hint {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: #dcdfe6;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 700;
+  font-style: italic;
+}
+
+.steam__amount {
+  display: flex;
+  align-items: center;
+  width: 342px;
+  height: 64px;
+  margin-left: 16px;
+  padding: 0 16px;
+  border-radius: var(--radius-md);
+  background: var(--field);
+}
+
+.steam__amount-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.steam__amount-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--ink-muted);
+}
+
+.steam__amount-caption {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.steam__amount-value {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+// Интерактив №3: переключатель валют, только активное состояние.
+.currency {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.currency__button {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: #e6e8ee;
+  color: var(--ink-muted);
+  font-size: 16px;
+  font-weight: 600;
+  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+
+  &:hover {
+    background: #dcdfe6;
+  }
+
+  &[aria-pressed='true'] {
+    background: var(--ink);
+    color: #fff;
+  }
+}
+
+.steam__pay {
+  width: 200px;
+  height: 64px;
+  margin-left: 16px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--ink);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  transition: background 0.18s var(--ease);
+
+  &:hover {
+    background: #24262c;
+  }
+}
+
+.steam__amount-text {
+  display: grid;
+}
