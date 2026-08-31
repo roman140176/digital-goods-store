@@ -65,7 +65,11 @@ fresh:
 test:
 	@$(COMPOSE) exec -T db psql -U app -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='store_test'" \
 	  | grep -q 1 || $(COMPOSE) exec -T db psql -U app -d postgres -c "CREATE DATABASE store_test"
-	$(EXEC) php artisan test
+	@# База тестов передаётся явно: compose отдаёт backend/.env в контейнер
+	@# настоящими переменными окружения, и они сильнее значений из phpunit.xml.
+	@# Без этого RefreshDatabase работал бы по базе витрины и стирал её данные.
+	$(COMPOSE) exec -T -e APP_ENV=testing -e DB_DATABASE=store_test \
+	  -e QUEUE_CONNECTION=sync app php artisan test
 
 .PHONY: logs
 logs:
@@ -111,3 +115,7 @@ race-promo-limit:
 .PHONY: race-timeout-leak
 race-timeout-leak:
 	$(RACE)/race-timeout-leak.php
+
+.PHONY: race-error-after-issue
+race-error-after-issue:
+	$(RACE)/race-error-after-issue.php
