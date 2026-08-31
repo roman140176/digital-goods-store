@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Domain\Orders\OrderStatus;
+use App\Domain\Payments\ApplyPaymentEvent;
 use App\Models\Order;
 use App\Models\Promocode;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 final class PaymentWebhookTest extends TestCase
@@ -22,11 +24,15 @@ final class PaymentWebhookTest extends TestCase
         Queue::fake();
     }
 
+    private string $lastEventId = '';
+
     /** @param array<string, mixed> $overrides */
     private function event(string $orderId, array $overrides = []): array
     {
+        $this->lastEventId = 'evt_'.bin2hex(random_bytes(6));
+
         return array_merge([
-            'event_id' => 'evt_'.bin2hex(random_bytes(6)),
+            'event_id' => $this->lastEventId,
             'order_id' => $orderId,
             'status' => 'paid',
             'amount' => 1290,
@@ -135,7 +141,7 @@ final class PaymentWebhookTest extends TestCase
         $this->assertDatabaseCount('deliveries', 0);
     }
 
-    public function test_failed_payment_releases_promo_usage(): void
+    public function test_failed_payment_keeps_promo_usage(): void
     {
         $order = $this->createOrder('KEY-CS2-PRIME', 'LIMIT3');
         $this->assertSame(1, Promocode::query()->find('LIMIT3')?->used_count);
@@ -146,8 +152,138 @@ final class PaymentWebhookTest extends TestCase
         ]))->assertOk()->assertJsonPath('outcome', 'applied');
 
         $this->assertSame(OrderStatus::PaymentFailed, $order->refresh()->status);
-        $this->assertSame(0, Promocode::query()->find('LIMIT3')?->used_count);
-        $this->assertDatabaseMissing('promo_redemptions', ['order_id' => $order->id, 'released_at' => null]);
+        $this->assertSame(
+            1,
+            Promocode::query()->find('LIMIT3')?->used_count,
+            'слот принадлежит заказу: платёж может подтвердиться позже',
+        );
+    }
+
+    /**
+     * Регрессия. Пока отказ оплаты возвращал использование в лимит, цикл
+     * «отказ → новый заказ → запоздавшее подтверждение» позволял применить
+     * код сколько угодно раз: воскресший заказ сохранял скидку, не занимая
+     * слот заново.
+     */
+    public function test_payment_confirmed_after_failure_does_not_spend_a_second_usage(): void
+    {
+        $order = $this->createOrder('KEY-CS2-PRIME', 'ONCEONLY');
+        $discount = $order->discount_minor;
+        $this->assertGreaterThan(0, $discount);
+
+        $this->postJson('/api/webhook/payment', $this->event($order->id, [
+            'status' => 'failed',
+            'amount' => $order->total_minor / 100,
+            'created_at' => now()->subMinute()->toIso8601ZuluString(),
+        ]))->assertOk()->assertJsonPath('outcome', 'applied');
+
+        $this->assertSame(OrderStatus::PaymentFailed, $order->refresh()->status);
+
+        // Платёж подтвердился позже: заказ обязан ожить, деньги терять нельзя.
+        $this->postJson('/api/webhook/payment', $this->event($order->id, [
+            'amount' => $order->total_minor / 100,
+            'created_at' => now()->toIso8601ZuluString(),
+        ]))->assertOk()->assertJsonPath('outcome', 'applied');
+
+        $order->refresh();
+        $this->assertSame(OrderStatus::Paid, $order->status);
+        $this->assertSame($discount, $order->discount_minor, 'скидка воскресшего заказа сохраняется');
+
+        // И при этом лимит остался соблюдён: код применён ровно один раз.
+        $this->assertSame(1, Promocode::query()->find('ONCEONLY')?->used_count);
+        $this->postJson('/api/orders', ['sku' => 'KEY-GTA5', 'promo_code' => 'ONCEONLY'], [
+            'Idempotency-Key' => 'after-resurrection',
+        ])->assertStatus(422)->assertJsonPath('reason', 'limit_reached');
+    }
+
+    /**
+     * Регрессия. Парковка события — не завершение обработки: заказа ещё нет.
+     * Если он появится, а быстрый путь применения парковку не увидит (она
+     * закоммитилась позже его выборки — так и происходит, когда вебхук и
+     * создание заказа идут одновременно), оплату обязан дослать планировщик.
+     * Раньше припаркованное событие помечалось обработанным, и оплата
+     * терялась навсегда.
+     */
+    public function test_parked_event_is_recovered_when_order_appears_later(): void
+    {
+        $orderId = 'ord_'.Str::lower((string) Str::ulid());
+        $events = app(ApplyPaymentEvent::class);
+
+        $this->postJson('/api/webhook/payment', $this->event($orderId))
+            ->assertOk()
+            ->assertJsonPath('outcome', 'parked_no_order');
+
+        $this->assertDatabaseHas('payment_events', ['event_id' => $this->lastEventId, 'processed_at' => null]);
+        $this->assertSame(0, $events->applyUnprocessed(0), 'пока заказа нет, событие не трогаем');
+
+        // Заказ появляется в обход быстрого пути — ровно то, что даёт гонка.
+        Order::query()->create([
+            'id' => $orderId,
+            'sku' => 'KEY-CS2-PRIME',
+            'amount_minor' => 129000,
+            'discount_minor' => 0,
+            'total_minor' => 129000,
+            'currency' => 'RUB',
+            'status' => OrderStatus::Created,
+            'idempotency_key' => (string) Str::uuid(),
+        ]);
+
+        // Планировщик берёт события «старше N секунд». Сдвигаем время вперёд,
+        // чтобы проверка не зависела от того, чьи микросекунды старше —
+        // приложения или базы: в тесте всё происходит в одну миллисекунду.
+        $this->travel(5)->seconds();
+
+        $this->assertSame(1, $events->applyUnprocessed(1));
+
+        $order = Order::query()->findOrFail($orderId);
+        $this->assertSame(OrderStatus::Paid, $order->status);
+        $this->assertDatabaseHas('deliveries', ['order_id' => $orderId]);
+    }
+
+    /**
+     * Метки в контракте с секундной точностью, поэтому отказ и подтверждение
+     * одной секунды — обычное дело. На ничьей побеждает оплата: потерять
+     * деньги хуже, чем лишний раз оживить заказ.
+     */
+    public function test_paid_wins_a_timestamp_tie_against_failed(): void
+    {
+        $order = $this->createOrder();
+        $sameSecond = now()->startOfSecond()->toIso8601ZuluString();
+
+        $this->postJson('/api/webhook/payment', $this->event($order->id, [
+            'status' => 'failed',
+            'created_at' => $sameSecond,
+        ]))->assertOk()->assertJsonPath('outcome', 'applied');
+
+        $this->postJson('/api/webhook/payment', $this->event($order->id, [
+            'created_at' => $sameSecond,
+        ]))->assertOk()->assertJsonPath('outcome', 'applied');
+
+        $this->assertSame(OrderStatus::Paid, $order->refresh()->status);
+        $this->assertDatabaseHas('deliveries', ['order_id' => $order->id]);
+    }
+
+    public function test_currency_mismatch_does_not_mark_order_paid(): void
+    {
+        $order = $this->createOrder();
+
+        $this->postJson('/api/webhook/payment', $this->event($order->id, ['currency' => 'USD']))
+            ->assertOk()
+            ->assertJsonPath('outcome', 'currency_mismatch');
+
+        $this->assertSame(OrderStatus::Created, $order->refresh()->status);
+        $this->assertDatabaseCount('deliveries', 0);
+    }
+
+    public function test_out_of_range_amount_is_rejected_by_validation(): void
+    {
+        $order = $this->createOrder();
+
+        // 5xx заставил бы платёжную систему повторять отравленное событие вечно.
+        $this->postJson('/api/webhook/payment', $this->event($order->id, ['amount' => 1e15]))
+            ->assertStatus(422);
+
+        $this->assertSame(OrderStatus::Created, $order->refresh()->status);
     }
 
     public function test_delivered_order_is_never_changed_by_late_events(): void

@@ -59,25 +59,32 @@ final class PromoServiceTest extends TestCase
         $this->promo->reserve('GG500', 129000, 'ord_x', 'USD');
     }
 
-    public function test_release_returns_usage_and_keeps_audit_trail(): void
+    public function test_reserved_usage_is_recorded_and_counted_once(): void
     {
-        $this->promo->reserve('LIMIT3', 129000, 'ord_release', 'RUB');
+        $discount = $this->promo->reserve('LIMIT3', 129000, 'ord_audit', 'RUB');
+
+        $this->assertSame(32250, $discount);
         $this->assertSame(1, Promocode::query()->find('LIMIT3')?->used_count);
-
-        $this->promo->release('LIMIT3', 'ord_release');
-
-        $this->assertSame(0, Promocode::query()->find('LIMIT3')?->used_count);
-        $this->assertDatabaseHas('promo_redemptions', ['order_id' => 'ord_release', 'code' => 'LIMIT3']);
-        $this->assertDatabaseMissing('promo_redemptions', ['order_id' => 'ord_release', 'released_at' => null]);
+        $this->assertDatabaseHas('promo_redemptions', [
+            'order_id' => 'ord_audit',
+            'code' => 'LIMIT3',
+            'discount_minor' => 32250,
+        ]);
     }
 
-    public function test_release_is_idempotent(): void
+    public function test_failed_reservation_does_not_consume_the_limit(): void
     {
-        $this->promo->reserve('LIMIT3', 129000, 'ord_twice', 'RUB');
+        $this->promo->reserve('ONCEONLY', 129000, 'ord_taken', 'RUB');
 
-        $this->promo->release('LIMIT3', 'ord_twice');
-        $this->promo->release('LIMIT3', 'ord_twice');
+        try {
+            $this->promo->reserve('ONCEONLY', 129000, 'ord_rejected', 'RUB');
+            $this->fail('ожидался отказ по лимиту');
+        } catch (PromoUnavailable $e) {
+            $this->assertSame('limit_reached', $e->why);
+        }
 
-        $this->assertSame(0, Promocode::query()->find('LIMIT3')?->used_count);
+        $promo = Promocode::query()->findOrFail('ONCEONLY');
+        $this->assertSame(1, $promo->used_count, 'счётчик не должен уйти выше лимита');
+        $this->assertDatabaseMissing('promo_redemptions', ['order_id' => 'ord_rejected']);
     }
 }

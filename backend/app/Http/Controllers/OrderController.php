@@ -31,6 +31,15 @@ final class OrderController extends Controller
             ], 422);
         }
 
+        // Ключ уходит в колонку varchar(255): без этой проверки слишком длинный
+        // заголовок падал бы ошибкой вставки, а не понятным ответом.
+        if (mb_strlen($idempotencyKey) > 255) {
+            return response()->json([
+                'message' => 'Заголовок Idempotency-Key длиннее 255 символов.',
+                'reason' => 'idempotency_key_too_long',
+            ], 422);
+        }
+
         try {
             $result = $createOrder($data['sku'], $data['promo_code'] ?? null, $idempotencyKey);
         } catch (PromoUnavailable $e) {

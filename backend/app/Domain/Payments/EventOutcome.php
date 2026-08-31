@@ -25,6 +25,9 @@ enum EventOutcome: string
     /** Сумма в событии не совпала с суммой заказа. */
     case AmountMismatch = 'amount_mismatch';
 
+    /** Валюта события не совпала с валютой заказа. */
+    case CurrencyMismatch = 'currency_mismatch';
+
     /** Заказ уже не в том состоянии, к которому событие применимо. */
     case Ignored = 'ignored';
 }

@@ -30,7 +30,9 @@ final class PromocodeSeeder extends Seeder
                 'value' => $value,
                 'currency' => $currency,
                 'max_uses' => $maxUses,
-                'used_count' => 0,
+                // used_count намеренно не переписывается: `make up` гоняет сид
+                // при каждом запуске, а обнуление счётчика тихо возвращало бы
+                // исчерпанные лимиты. У новой строки он равен DEFAULT 0.
             ]);
         }
     }

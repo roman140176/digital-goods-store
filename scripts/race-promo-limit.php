@@ -11,6 +11,10 @@ require __DIR__.'/lib.php';
  *
  * Проверяются два кода из ТЗ: ONCEONLY (лимит 1) и LIMIT3 (лимит 3).
  * По каждому уходит залп из пятидесяти одновременных заказов.
+ *
+ * Третий блок закрывает обход лимита не гонкой, а последовательностью:
+ * отказ оплаты не должен возвращать использование в лимит, потому что
+ * платёж может подтвердиться позже и заказ со скидкой оживёт.
  */
 
 Race::title('Лимит промокодов под параллельными заказами');
@@ -104,5 +108,85 @@ foreach ($scenarios as $code => $sku) {
         'заказов со скидкой: '.$discountsPositive.' из '.$applied,
     );
 }
+
+// --- Лимит не обходится через отказ оплаты и позднее подтверждение ---
+
+$code = 'GG500';
+$state = promo_state($code);
+$usedBefore = (int) ($state['used_count'] ?? 0);
+
+Race::step(sprintf(
+    '%s: отказ оплаты → позднее подтверждение (использовано %d из %d)',
+    $code,
+    $usedBefore,
+    (int) ($state['max_uses'] ?? 0),
+));
+
+$order = create_order('KEY-CS2-PRIME', $code);
+$orderId = (string) ($order['id'] ?? '');
+$discount = (int) ($order['discount_minor'] ?? 0);
+$total = (int) ($order['total_minor'] ?? 0);
+
+Race::check($orderId !== '' && $discount > 0, $code.': заказ со скидкой создан', 'скидка: '.$discount);
+Race::check(
+    (int) promo_state($code)['used_count'] === $usedBefore + 1,
+    $code.': использование занято при создании заказа',
+);
+
+// Отказ приходит со старшей меткой, подтверждение — со свежей: порядок
+// определяет платёжная система, и подтверждение обязано победить.
+$failedAt = gmdate('c', time() - 60);
+request('POST', base_url().'/api/webhook/payment', webhook_request(
+    $orderId,
+    $total,
+    'evt_promo_fail_'.bin2hex(random_bytes(6)),
+    'failed',
+    $failedAt,
+)['json']);
+
+$afterFail = get_order($orderId);
+
+Race::check(
+    ($afterFail['status'] ?? '') === 'payment_failed',
+    $code.': отказ оплаты применён',
+    'статус: '.($afterFail['status'] ?? '?'),
+);
+Race::check(
+    (int) promo_state($code)['used_count'] === $usedBefore + 1,
+    $code.': отказ оплаты НЕ вернул использование в лимит',
+    'счётчик: '.(int) promo_state($code)['used_count'],
+);
+
+request('POST', base_url().'/api/webhook/payment', webhook_request(
+    $orderId,
+    $total,
+    'evt_promo_paid_'.bin2hex(random_bytes(6)),
+    'paid',
+    gmdate('c'),
+)['json']);
+
+$resurrected = wait_for_final($orderId, 90);
+
+Race::check(
+    in_array($resurrected['status'] ?? '', ['paid', 'delivering', 'delivered'], true),
+    $code.': оплата, подтверждённая позже, не потеряна',
+    'статус: '.($resurrected['status'] ?? '?'),
+);
+Race::check(
+    (int) ($resurrected['discount_minor'] ?? -1) === $discount,
+    $code.': скидка воскресшего заказа сохранена',
+);
+
+$usedAfter = (int) promo_state($code)['used_count'];
+
+Race::check(
+    $usedAfter === $usedBefore + 1,
+    $code.': за весь цикл код применён ровно один раз',
+    'было: '.$usedBefore.', стало: '.$usedAfter,
+);
+Race::check(
+    $usedAfter <= (int) promo_state($code)['max_uses'],
+    $code.': лимит не превышен',
+);
 
 exit(Race::summary());

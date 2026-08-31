@@ -47,7 +47,7 @@ final class CreateOrder
                 'INSERT INTO orders (id, sku, amount_minor, discount_minor, total_minor, currency,
                                      status, idempotency_key, created_at, updated_at)
                  VALUES (?, ?, ?, 0, ?, ?, ?, ?, now(), now())
-                 ON CONFLICT (idempotency_key) DO NOTHING',
+                 ON CONFLICT DO NOTHING',
                 [
                     $id,
                     $product->sku,
@@ -60,7 +60,23 @@ final class CreateOrder
             );
 
             if ($inserted === 0) {
-                $existing = Order::query()->where('idempotency_key', $idempotencyKey)->firstOrFail();
+                // Конфликт возможен по ключу идемпотентности и по id: второй
+                // случай — только у служебной ручки со заданным id, которой
+                // проверяется «вебхук раньше заказа». Оба исхода означают одно:
+                // заказ уже есть, создавать второй нельзя.
+                $existing = Order::query()->where('idempotency_key', $idempotencyKey)->first()
+                    ?? ($forcedId === null ? null : Order::query()->find($forcedId));
+
+                if ($existing === null) {
+                    throw new OrderConflict($idempotencyKey);
+                }
+
+                // Тот же ключ с другим телом — это не повтор, а ошибка клиента:
+                // молча вернуть заказ на другой товар нельзя.
+                if ($existing->sku !== $product->sku
+                    || ($existing->promo_code ?? '') !== ($promoCode ?? '')) {
+                    throw new OrderConflict($idempotencyKey);
+                }
 
                 return ['order' => $existing, 'created' => false];
             }

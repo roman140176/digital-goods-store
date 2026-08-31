@@ -112,4 +112,30 @@ final class CreateOrderTest extends TestCase
         $this->postJson('/api/orders', ['sku' => 'NO-SUCH-SKU'], ['Idempotency-Key' => 'unknown-sku'])
             ->assertStatus(422);
     }
+
+    public function test_too_long_idempotency_key_is_rejected_with_a_reason(): void
+    {
+        // Колонка varchar(255): без проверки запрос падал ошибкой вставки.
+        $this->postJson('/api/orders', ['sku' => 'KEY-GTA5'], ['Idempotency-Key' => str_repeat('k', 256)])
+            ->assertStatus(422)
+            ->assertJsonPath('reason', 'idempotency_key_too_long');
+
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_api_errors_are_json_even_without_accept_header(): void
+    {
+        // Без этого ошибка валидации уходила редиректом на HTML-витрину.
+        $this->post('/api/orders', [], ['Idempotency-Key' => 'no-accept-header'])
+            ->assertStatus(422)
+            ->assertHeader('content-type', 'application/json');
+    }
+
+    public function test_unknown_order_returns_short_json_404(): void
+    {
+        $this->getJson('/api/orders/ord_nope')
+            ->assertStatus(404)
+            ->assertJsonPath('reason', 'not_found')
+            ->assertJsonMissingPath('trace');
+    }
 }

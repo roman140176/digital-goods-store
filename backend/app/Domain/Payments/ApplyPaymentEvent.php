@@ -96,6 +96,18 @@ final class ApplyPaymentEvent
         $eventIds = PaymentEvent::query()
             ->whereNull('processed_at')
             ->where('received_at', '<=', now()->subSeconds($olderThanSeconds))
+            // Припаркованное событие ждёт своего заказа. Пока заказа нет,
+            // трогать его незачем: иначе вебхуки на несуществующие заказы
+            // занимали бы всю выборку и вытесняли настоящие.
+            ->where(function ($query): void {
+                $query->whereNull('outcome')
+                    ->orWhere('outcome', '!=', EventOutcome::ParkedNoOrder->value)
+                    ->orWhereExists(function ($sub): void {
+                        $sub->selectRaw('1')
+                            ->from('orders')
+                            ->whereColumn('orders.id', 'payment_events.order_id');
+                    });
+            })
             ->orderBy('received_at')
             ->limit($limit)
             ->pluck('event_id');
@@ -145,10 +157,17 @@ final class ApplyPaymentEvent
                 return $this->finish($event, EventOutcome::IgnoredTerminal);
             }
 
-            if ($event->provider_created_at !== null
-                && $order->last_event_at !== null
-                && $event->provider_created_at <= $order->last_event_at) {
-                return $this->finish($event, EventOutcome::Stale);
+            // Порядок определяет метка платёжной системы. Метки в контракте
+            // с секундной точностью, поэтому ничья — обычное дело: отказ и
+            // подтверждение одной секунды. На ничьей побеждает оплата, иначе
+            // деньги теряются, а воскрешение заказа безопасно (см. applyPaid).
+            if ($event->provider_created_at !== null && $order->last_event_at !== null) {
+                $older = $event->provider_created_at < $order->last_event_at;
+                $tie = $event->provider_created_at == $order->last_event_at;
+
+                if ($older || ($tie && $event->status !== 'paid')) {
+                    return $this->finish($event, EventOutcome::Stale);
+                }
             }
 
             return match ($event->status) {
@@ -163,6 +182,12 @@ final class ApplyPaymentEvent
     {
         if ($event->amount_minor !== null && $event->amount_minor !== $order->total_minor) {
             return $this->finish($event, EventOutcome::AmountMismatch);
+        }
+
+        // Валюта события обязана совпадать с валютой заказа: без этой проверки
+        // «оплата» в другой валюте на то же число прошла бы как настоящая.
+        if ($event->currency !== null && $event->currency !== $order->currency) {
+            return $this->finish($event, EventOutcome::CurrencyMismatch);
         }
 
         // Оплата уже учтена: заказ в выдаче или ждёт восстановления.
@@ -211,9 +236,12 @@ final class ApplyPaymentEvent
             'last_event_at' => $event->provider_created_at ?? now(),
         ]);
 
-        if ($order->promo_code !== null) {
-            $this->promo->release($order->promo_code, $order->id);
-        }
+        // Использование промокода в лимит НЕ возвращается. Платёж может
+        // подтвердиться позже (applyPaid допускает переход из payment_failed),
+        // и заказ со скидкой оживёт. Если слот к тому моменту заняли другие
+        // покупатели, код оказался бы применён больше max_uses раз — прямое
+        // нарушение критерия приёмки. Слот принадлежит заказу, а не попытке
+        // оплаты: повторная оплата того же заказа сохраняет скидку.
 
         OrderAudit::record(
             $order->id,
@@ -245,9 +273,15 @@ final class ApplyPaymentEvent
 
     private function finish(PaymentEvent $event, EventOutcome $outcome): EventOutcome
     {
+        // Парковка — не завершение: заказа ещё нет, событие ждёт его. Если
+        // пометить его обработанным, а создание заказа не увидит парковку
+        // (она закоммитилась позже его выборки), оплату не применит уже никто.
+        // Поэтому processed_at остаётся пустым, и событие подберёт планировщик.
+        $processedAt = $outcome === EventOutcome::ParkedNoOrder ? null : now();
+
         $event->forceFill([
             'outcome' => $outcome->value,
-            'processed_at' => now(),
+            'processed_at' => $processedAt,
         ])->save();
 
         return $outcome;

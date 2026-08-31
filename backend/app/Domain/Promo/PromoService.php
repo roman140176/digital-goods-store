@@ -61,31 +61,6 @@ final class PromoService
     }
 
     /**
-     * Возвращает использование в лимит, когда оплата не прошла.
-     * Строку списания не удаляем: в аудите должно остаться, что код применялся.
-     */
-    public function release(string $code, string $orderId): void
-    {
-        DB::transaction(function () use ($code, $orderId): void {
-            $released = DB::affectingStatement(
-                'UPDATE promo_redemptions
-                    SET released_at = now(), updated_at = now()
-                  WHERE order_id = ? AND code = ? AND released_at IS NULL',
-                [$orderId, $code],
-            );
-
-            if ($released > 0) {
-                DB::affectingStatement(
-                    'UPDATE promocodes
-                        SET used_count = used_count - 1, updated_at = now()
-                      WHERE code = ? AND used_count > 0',
-                    [$code],
-                );
-            }
-        });
-    }
-
-    /**
      * value трактуется по типу кода: для percent это проценты,
      * для amount — копейки (справочник ТЗ задаёт рубли, сид переводит).
      */

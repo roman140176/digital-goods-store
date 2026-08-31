@@ -25,8 +25,12 @@ final class WebhookController extends Controller
             'event_id' => ['required', 'string', 'max:128'],
             'order_id' => ['required', 'string', 'max:128'],
             'status' => ['required', 'string', 'in:paid,failed'],
-            'amount' => ['nullable', 'numeric'],
-            'currency' => ['nullable', 'string', 'size:3'],
+            // Контракт ТЗ всегда присылает сумму и валюту. Границы нужны,
+            // чтобы заведомо мусорное значение отсекалось валидацией, а не
+            // падало на вставке в integer: 5xx платёжная система повторяет,
+            // и отравленное событие ретраилось бы вечно.
+            'amount' => ['required', 'numeric', 'min:0', 'max:99999999'],
+            'currency' => ['required', 'string', 'size:3'],
             'created_at' => ['nullable', 'date'],
         ]);
 
