@@ -13,6 +13,7 @@ final class Chaos
         'error_rate' => 'ERROR_RATE',
         'timeout_rate' => 'TIMEOUT_RATE',
         'issue_then_timeout' => 'ISSUE_THEN_TIMEOUT',
+        'issue_then_error' => 'ISSUE_THEN_ERROR',
         'timeout_seconds' => 'TIMEOUT_SECONDS',
     ];
 

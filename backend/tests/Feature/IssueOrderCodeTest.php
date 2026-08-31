@@ -128,19 +128,65 @@ final class IssueOrderCodeTest extends TestCase
         $this->assertSame(DeliveryState::OutOfStock, $delivery->refresh()->state);
     }
 
-    public function test_error_response_from_both_suppliers_leaves_order_recoverable(): void
+    /**
+     * Регрессия. Ответ об ошибке НЕ доказывает, что кода нет: поставщик мог
+     * закрепить ключ за request_id и упасть на ответе (у заглушки для этого
+     * есть режим issue_then_error). Раньше 5xx считался доказательством
+     * отсутствия кода, и заказ уходил к резервному поставщику — второй ключ
+     * сгорал, а за заказом оказывалось два ключа.
+     */
+    public function test_error_response_never_falls_over_to_backup_supplier(): void
     {
         $delivery = $this->paidOrder();
-        $a = new FakeSupplier('a', array_fill(0, 3, SupplierOutcome::errored('http 500')));
-        $b = new FakeSupplier('b', array_fill(0, 3, SupplierOutcome::errored('http 500')));
+        $a = new FakeSupplier('a', array_fill(0, 3, SupplierOutcome::ambiguous('http 503 supplier_error')));
+        $b = new FakeSupplier('b', [SupplierOutcome::ok('BBBB-9999-TTTT')]);
 
         ($this->issueWith($a, $b))($delivery->id);
 
         $order = $delivery->order->refresh();
         $this->assertSame(OrderStatus::DeliveryFailed, $order->status);
         $this->assertTrue($order->status->isRecoverable());
-        $this->assertCount(3, $a->calls);
-        $this->assertCount(3, $b->calls);
+        $this->assertNull($order->delivered_code);
+        $this->assertCount(3, $a->calls, 'повторы уходят тому же поставщику');
+        $this->assertCount(0, $b->calls, 'ответ об ошибке не доказывает отсутствие кода');
+    }
+
+    /** Ошибка, а затем успех у того же поставщика: ключ ровно один. */
+    public function test_retry_after_error_takes_the_code_from_the_same_supplier(): void
+    {
+        $delivery = $this->paidOrder();
+        $a = new FakeSupplier('a', [
+            SupplierOutcome::ambiguous('http 503 supplier_error'),
+            SupplierOutcome::ok('AAAA-7777-SSSS'),
+        ]);
+        $b = new FakeSupplier('b', [SupplierOutcome::ok('BBBB-8888-RRRR')]);
+
+        ($this->issueWith($a, $b))($delivery->id);
+
+        $order = $delivery->order->refresh();
+        $this->assertSame(OrderStatus::Delivered, $order->status);
+        $this->assertSame('AAAA-7777-SSSS', $order->delivered_code);
+        $this->assertSame('a', $order->delivered_by);
+        $this->assertCount(0, $b->calls);
+    }
+
+    /** Ключ не уходит за заказ, по которому не было оплаты. */
+    public function test_unpaid_order_is_never_delivered(): void
+    {
+        $delivery = $this->paidOrder();
+        $delivery->order->forceFill(['status' => OrderStatus::Created->value])->save();
+
+        $a = new FakeSupplier('a', [SupplierOutcome::ok('AAAA-0000-QQQQ')]);
+        $b = new FakeSupplier('b', [SupplierOutcome::ok('BBBB-0000-PPPP')]);
+
+        ($this->issueWith($a, $b))($delivery->id);
+
+        $order = $delivery->order->refresh();
+        $this->assertSame(OrderStatus::Created, $order->status, 'исход платежа не подменяется');
+        $this->assertNull($order->delivered_code);
+        $this->assertCount(0, $a->calls, 'у поставщика не должны просить ключ');
+        $this->assertCount(0, $b->calls);
+        $this->assertDatabaseMissing('deliveries', ['id' => $delivery->id]);
     }
 
     public function test_second_pass_over_delivered_order_issues_nothing(): void

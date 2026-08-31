@@ -18,6 +18,7 @@ $scenarios = [
     'Пустой склад и восстановление (крит. 4)' => 'race-empty-pool.php',
     'Лимит промокодов (крит. 5)' => 'race-promo-limit.php',
     'Ловушка таймаута поставщика' => 'race-timeout-leak.php',
+    'Ошибка после выдачи ключа' => 'race-error-after-issue.php',
 ];
 
 $results = [];

@@ -38,7 +38,8 @@ final readonly class HttpSupplier implements Supplier
             // безопасен. Во втором он мог выдать код: ситуация неоднозначна.
             return $this->isTimeout($e->getMessage())
                 ? SupplierOutcome::ambiguous('timeout')
-                : SupplierOutcome::errored('unreachable');
+                // Соединение не состоялось: запрос мог дойти и быть выполнен.
+                : SupplierOutcome::ambiguous('unreachable');
         }
 
         $body = $response->json();
@@ -53,9 +54,10 @@ final readonly class HttpSupplier implements Supplier
             return SupplierOutcome::outOfStock();
         }
 
-        // Ответ получен, кода в нём нет. Поскольку поставщик идемпотентен по
-        // request_id, это доказывает, что код не выдавался.
-        return SupplierOutcome::errored(sprintf('http %d %s', $response->status(), (string) ($body['reason'] ?? 'unknown')));
+        // Ответ получен, но кода в нём нет и причина не «out_of_stock».
+        // Это НЕ доказывает, что код не выдан: поставщик мог закрепить ключ
+        // и упасть на ответе. Считаем исход неизвестным.
+        return SupplierOutcome::ambiguous(sprintf('http %d %s', $response->status(), (string) ($body['reason'] ?? 'unknown')));
     }
 
     private function isTimeout(string $message): bool

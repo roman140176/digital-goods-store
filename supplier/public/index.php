@@ -110,6 +110,11 @@ if ($path === '/issue' && $method === 'POST') {
 
     $config = Chaos::all();
 
+    // Сбои разыгрываются ВОКРУГ выдачи, в том числе на повторах: сломанный
+    // поставщик имеет право не донести уже закреплённый ключ. Второй ключ при
+    // этом невозможен — за это отвечает идемпотентность Inventory::issue по
+    // request_id. Именно поэтому ответ об ошибке не доказывает отсутствие кода.
+
     // Отказ до выдачи: код не тронут, повтор безопасен.
     if (Chaos::rolls($config['error_rate'])) {
         json(['status' => 'error', 'reason' => 'supplier_error'], 503);
@@ -136,6 +141,12 @@ if ($path === '/issue' && $method === 'POST') {
     // поставщика, иначе будет израсходовано два ключа вместо одного.
     if (Chaos::rolls($config['issue_then_timeout'])) {
         usleep((int) ($config['timeout_seconds'] * 1_000_000));
+    }
+
+    // Та же ловушка, но с ОТВЕТОМ об ошибке: ключ закреплён за request_id,
+    // а клиент видит 503. Ответ об ошибке не доказывает, что кода нет.
+    if (Chaos::rolls($config['issue_then_error'])) {
+        json(['status' => 'error', 'reason' => 'supplier_error'], 503);
     }
 
     json([

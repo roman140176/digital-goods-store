@@ -83,6 +83,23 @@ final class OrderAdminController extends Controller
             ]);
         }
 
+        // «Безопасная повторная выдача» из ТЗ — это выдача ОПЛАЧЕННОГО заказа.
+        // По неоплаченному кнопка не должна отдавать ключ, даже если оператор
+        // подставил его id руками.
+        if (! in_array($order->status, [
+            OrderStatus::Paid,
+            OrderStatus::Delivering,
+            OrderStatus::OutOfStock,
+            OrderStatus::DeliveryFailed,
+        ], true)) {
+            return $this->respond(
+                $request,
+                "Заказ {$order->id} не оплачен ({$order->status->value}): повторная выдача не запускается.",
+                ['redelivered' => false, 'status' => $order->status->value],
+                422,
+            );
+        }
+
         $delivery = Delivery::query()->where('order_id', $order->id)->first();
 
         if ($delivery === null) {
@@ -131,10 +148,10 @@ final class OrderAdminController extends Controller
     }
 
     /** @param array<string, mixed> $payload */
-    private function respond(Request $request, string $message, array $payload)
+    private function respond(Request $request, string $message, array $payload, int $status = 200)
     {
         if ($request->expectsJson()) {
-            return response()->json(['message' => $message] + $payload);
+            return response()->json(['message' => $message] + $payload, $status);
         }
 
         return back()->with('status', $message);

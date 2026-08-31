@@ -299,6 +299,7 @@ function suppliers_calm(): void
             'error_rate' => 0,
             'timeout_rate' => 0,
             'issue_then_timeout' => 0,
+            'issue_then_error' => 0,
             'timeout_seconds' => 10,
         ]);
     }
@@ -313,8 +314,15 @@ function suppliers_ready(int $minFree = 5): void
 {
     suppliers_calm();
 
-    if (total_free() < $minFree) {
-        supplier_restock('a', $minFree * 2);
+    // Остаток нужен у КАЖДОГО поставщика: суммарный счёт врал, если весь
+    // остаток лежал у одного, и сценарий про резервного поставщика падал
+    // по внешней причине.
+    foreach (['a', 'b'] as $id) {
+        $free = (int) (supplier_inventory($id)['free'] ?? 0);
+
+        if ($free < $minFree) {
+            supplier_restock($id, ($minFree - $free) * 2);
+        }
     }
 }
 

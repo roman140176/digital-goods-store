@@ -31,7 +31,7 @@ final class FakeSupplier implements Supplier
     {
         $this->calls[] = $requestId;
 
-        return array_shift($this->script) ?? SupplierOutcome::errored('script_exhausted');
+        return array_shift($this->script) ?? SupplierOutcome::ambiguous('script_exhausted');
     }
 
     public function inventory(): array

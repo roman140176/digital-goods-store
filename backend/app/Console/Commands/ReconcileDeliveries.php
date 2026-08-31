@@ -50,7 +50,10 @@ final class ReconcileDeliveries extends Command
                     ->whereNotNull('locked_until')
                     ->where('locked_until', '<=', now());
             })
-            ->orderBy('id')
+            // По давности, а не по id: при заторе больше лимита выборки
+            // сортировка по id вечно возвращала одни и те же первые строки,
+            // и «сверхлимитные» заказы не восстанавливались никогда.
+            ->orderBy('updated_at')
             ->limit((int) $this->option('limit'))
             ->pluck('id');
 

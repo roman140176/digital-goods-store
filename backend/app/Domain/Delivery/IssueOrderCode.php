@@ -63,7 +63,25 @@ final class IssueOrderCode
             return;
         }
 
-        $this->markDelivering($order);
+        // Выдавать можно только оплаченный заказ. Гард здесь, а не в
+        // привязке кода: иначе ключ у поставщика уже был бы израсходован.
+        if (! $this->markDelivering($order)) {
+            OrderAudit::record(
+                $order->id,
+                'delivery_skipped_unpaid',
+                'worker',
+                $order->status->value,
+                null,
+                ['request_id' => $delivery->request_id],
+            );
+
+            // Для неоплаченного заказа задачи выдачи существовать не должно:
+            // иначе реконсилятор будет дёргать её каждую минуту. Появится
+            // оплата — строка создастся заново.
+            Delivery::query()->whereKey($delivery->id)->delete();
+
+            return;
+        }
 
         $allOutOfStock = true;
         $failures = [];
@@ -77,13 +95,14 @@ final class IssueOrderCode
                 return;
             }
 
-            // Ответа от поставщика не было. Он мог выдать код, а подтверждение
-            // потеряться. Переход к резервному израсходовал бы второй ключ,
-            // поэтому останавливаемся: заказ уходит в восстановимое состояние,
-            // а реконсилятор добьёт ЭТОГО ЖЕ поставщика с тем же request_id.
+            // Исход неизвестен: таймаут, 5xx или непонятная причина. Код мог
+            // быть уже закреплён за request_id, поэтому переход к резервному
+            // израсходовал бы второй ключ. Останавливаемся: заказ уходит в
+            // восстановимое состояние, а реконсилятор добьёт ЭТОГО ЖЕ
+            // поставщика с тем же request_id.
             if ($outcome->isAmbiguous()) {
                 $this->giveUp($delivery, $order, false, sprintf(
-                    '%s: %s (ответа нет, резервный поставщик исключён)',
+                    '%s: %s (исход неизвестен, резервный поставщик исключён)',
                     $supplier->id(),
                     (string) $outcome->reason,
                 ));
@@ -91,12 +110,8 @@ final class IssueOrderCode
                 return;
             }
 
-            // Ответ получен, кода нет. Поставщик идемпотентен по request_id,
-            // значит код не выдавался и резервный поставщик безопасен.
-            if (! $outcome->isOutOfStock()) {
-                $allOutOfStock = false;
-            }
-
+            // Сюда попадает только однозначный «ключей нет»: всё остальное
+            // ушло в ветку выше. Значит резервный поставщик безопасен.
             $failures[] = $supplier->id().': '.(string) $outcome->reason;
         }
 
@@ -109,7 +124,7 @@ final class IssueOrderCode
      */
     private function askWithRetries(Supplier $supplier, Delivery $delivery, Order $order): SupplierOutcome
     {
-        $outcome = SupplierOutcome::errored('not_attempted');
+        $outcome = SupplierOutcome::ambiguous('not_attempted');
 
         for ($attempt = 1; $attempt <= $this->attemptsPerSupplier; $attempt++) {
             $outcome = $supplier->issue($delivery->request_id, $order->sku, $order->id);
@@ -136,10 +151,19 @@ final class IssueOrderCode
                 [DeliveryState::Failed->value, mb_substr($error, 0, 1000), $delivery->id, DeliveryState::InProgress->value],
             );
 
+            // В восстановимое состояние переводится только оплаченный заказ:
+            // сбой выдачи не должен подменять исход платежа.
             DB::affectingStatement(
                 'UPDATE orders SET status = ?, updated_at = now()
-                  WHERE id = ? AND delivered_code IS NULL',
-                [OrderStatus::DeliveryFailed->value, $delivery->order_id],
+                  WHERE id = ? AND delivered_code IS NULL AND status IN (?, ?, ?, ?)',
+                [
+                    OrderStatus::DeliveryFailed->value,
+                    $delivery->order_id,
+                    OrderStatus::Paid->value,
+                    OrderStatus::Delivering->value,
+                    OrderStatus::OutOfStock->value,
+                    OrderStatus::DeliveryFailed->value,
+                ],
             );
 
             OrderAudit::record(
@@ -186,19 +210,23 @@ final class IssueOrderCode
         });
     }
 
-    private function markDelivering(Order $order): void
+    /** @return bool false, если заказ не в состоянии, из которого выдают */
+    private function markDelivering(Order $order): bool
     {
-        DB::affectingStatement(
+        $moved = DB::affectingStatement(
             'UPDATE orders SET status = ?, updated_at = now()
-              WHERE id = ? AND status IN (?, ?, ?)',
+              WHERE id = ? AND status IN (?, ?, ?, ?)',
             [
                 OrderStatus::Delivering->value,
                 $order->id,
                 OrderStatus::Paid->value,
+                OrderStatus::Delivering->value,
                 OrderStatus::OutOfStock->value,
                 OrderStatus::DeliveryFailed->value,
             ],
         );
+
+        return $moved > 0;
     }
 
     private function attach(Order $order, Delivery $delivery, string $supplierId, string $code): void
