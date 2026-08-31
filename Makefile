@@ -1,0 +1,106 @@
+# Всё поднимается одной командой: make up
+# Контейнеры запускаются под текущим пользователем, чтобы storage/ был доступен для записи.
+
+APP_UID := $(shell id -u)
+APP_GID := $(shell id -g)
+COMPOSE := APP_UID=$(APP_UID) APP_GID=$(APP_GID) docker compose
+EXEC    := $(COMPOSE) exec -T app
+RACE    := $(EXEC) php /scripts
+
+.DEFAULT_GOAL := help
+
+.PHONY: help
+help:
+	@echo "make up        — собрать витрину, поднять стек, накатить миграции и сиды"
+	@echo "make down      — остановить стек"
+	@echo "make destroy   — остановить и снести данные"
+	@echo "make fresh     — пересоздать схему, засеять заново, обнулить склады"
+	@echo "make front     — собрать витрину (node в контейнере, на хосте ничего не нужно)"
+	@echo "make race-all  — прогнать все состязательные сценарии"
+	@echo "make test      — модульные и функциональные тесты"
+	@echo "make logs      — логи воркера и приложения"
+	@echo "make sh        — шелл внутри контейнера приложения"
+
+.PHONY: front
+front:
+	docker run --rm -u $(APP_UID):$(APP_GID) -e HOME=/tmp \
+	  -v "$(PWD)/frontend":/app -w /app node:22-alpine \
+	  sh -c "if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; \
+	         else npm install --no-audit --no-fund; fi && npm run build"
+
+.PHONY: up
+up: front
+	$(COMPOSE) up -d --build db app nginx supplier-a supplier-b
+	@echo "Ожидание готовности базы..."
+	@until $(COMPOSE) exec -T db pg_isready -U app -d store >/dev/null 2>&1; do sleep 1; done
+	$(EXEC) php artisan migrate --force
+	$(EXEC) php artisan db:seed --force
+	@echo "Схема готова, поднимаю воркер и планировщик..."
+	$(COMPOSE) up -d worker scheduler
+	@echo ""
+	@echo "Витрина:  http://localhost:8085"
+	@echo "Админка:  http://localhost:8085/admin/orders?token=admin-secret-token"
+	@echo "Склад A:  http://localhost:8086/inventory"
+	@echo "Склад B:  http://localhost:8087/inventory"
+
+.PHONY: down
+down:
+	$(COMPOSE) down
+
+.PHONY: destroy
+destroy:
+	$(COMPOSE) down -v
+
+.PHONY: fresh
+fresh:
+	$(EXEC) php artisan migrate:fresh --seed --force
+	$(RACE)/reset.php
+
+.PHONY: test
+test:
+	$(EXEC) php artisan test
+
+.PHONY: logs
+logs:
+	$(COMPOSE) logs -f --tail=100 app worker scheduler
+
+.PHONY: sh
+sh:
+	$(COMPOSE) exec app sh
+
+# ---- состязательные сценарии (номера соответствуют критериям приёмки ТЗ) ----
+
+.PHONY: race-all
+race-all:
+	@echo "Чистая база и исходный пул ключей из ТЗ перед прогоном..."
+	$(EXEC) php artisan migrate:fresh --seed --force
+	$(RACE)/reset.php
+	$(RACE)/run-all.php
+
+.PHONY: race-double-click
+race-double-click:
+	$(RACE)/race-double-click.php
+
+.PHONY: race-webhook-same-event
+race-webhook-same-event:
+	$(RACE)/race-webhook-same-event.php
+
+.PHONY: race-webhook-distinct-events
+race-webhook-distinct-events:
+	$(RACE)/race-webhook-distinct-events.php
+
+.PHONY: race-out-of-order
+race-out-of-order:
+	$(RACE)/race-out-of-order.php
+
+.PHONY: race-empty-pool
+race-empty-pool:
+	$(RACE)/race-empty-pool.php
+
+.PHONY: race-promo-limit
+race-promo-limit:
+	$(RACE)/race-promo-limit.php
+
+.PHONY: race-timeout-leak
+race-timeout-leak:
+	$(RACE)/race-timeout-leak.php

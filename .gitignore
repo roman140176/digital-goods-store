@@ -1,0 +1,9 @@
+# Собранная витрина и зависимости пересобираются командой make up
+/frontend/node_modules/
+/frontend/dist/
+
+# Локальное окружение бэкенда: шаблон лежит в backend/.env.example
+/backend/.env
+
+.DS_Store
+Thumbs.db
