@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domain\Realtime;
 
+use App\Domain\Orders\OrderPresenter;
 use App\Models\Order;
 use Illuminate\Support\Facades\DB;
 
@@ -84,6 +85,11 @@ final class EventBus
      * Отдельный топик на заказ, а не общий catalog: у заказа один-два
      * заинтересованных подписчика (покупатель, админка), и им не нужно
      * получать события по всем чужим предложениям витрины.
+     *
+     * Payload — ровно OrderPresenter::toArray() (см. решения задачи 4a):
+     * форма заказа в API и в потоке событий обязана быть одной и той же,
+     * иначе подписчик был бы вынужден мержить поля из двух разных контрактов
+     * вместо того, чтобы просто применить событие как снапшот целиком.
      */
     public function publishOrder(string $orderId): ?int
     {
@@ -93,17 +99,7 @@ final class EventBus
             return null;
         }
 
-        return $this->publish('order:'.$orderId, 'order.updated', [
-            'id' => $order->id,
-            'status' => $order->status->value,
-            'sku' => $order->sku,
-            'offer_id' => $order->offer_id === null ? null : (int) $order->offer_id,
-            'amount_minor' => $order->amount_minor,
-            'discount_minor' => $order->discount_minor,
-            'total_minor' => $order->total_minor,
-            'currency' => $order->currency,
-            'refund_required' => (bool) $order->refund_required,
-        ]);
+        return $this->publish('order:'.$orderId, 'order.updated', OrderPresenter::toArray($order));
     }
 
     /**

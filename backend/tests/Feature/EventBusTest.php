@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Domain\Orders\OrderPresenter;
 use App\Domain\Realtime\EventBus;
 use App\Domain\Realtime\OfferState;
 use App\Models\Offer;
@@ -160,6 +161,27 @@ final class EventBusTest extends TestCase
         $this->assertSame($before, StreamEvent::query()->count());
     }
 
+    /**
+     * Задача 4a: publishOrder отдаёт ровно OrderPresenter::toArray(), а не
+     * узкий отдельно собранный набор полей, — тест на форму payload заказа
+     * поправлен под это синхронно с самим EventBus (см. предполётные
+     * решения задачи 4a).
+     *
+     * stream_cursor сравнивается по отдельности, а не как часть общего
+     * сравнения: он считается ДО вставки события (см. 4.5 спеки), поэтому
+     * значение внутри уже опубликованного payload на единицу меньше того,
+     * что вернул бы OrderPresenter, вызванный ПОСЛЕ публикации, — не баг,
+     * а неизбежное следствие момента чтения курсора, и сравнивать его
+     * значение вслепую здесь означало бы проверять не тот факт.
+     *
+     * assertEquals, а не assertSame: колонка payload — jsonb, а не json,
+     * и Postgres хранит jsonb в разложенном бинарном виде, не обязанном
+     * помнить порядок ключей исходного объекта (сам же проверено вживую:
+     * '{"b":1,"a":2}'::jsonb превращается в {"a": 2, "b": 1}). Это свойство
+     * типа данных, а не утечка нашего кода, — assertSame сравнивал бы ещё и
+     * порядок ключей массива и был бы хрупким тестом на деталь реализации
+     * PostgreSQL, а не на состав payload.
+     */
     public function test_publish_order_carries_full_order_state_to_its_own_topic(): void
     {
         $offer = Offer::query()->orderBy('id')->firstOrFail();
@@ -182,10 +204,27 @@ final class EventBusTest extends TestCase
 
         $this->assertSame('order:'.$order->id, $event->topic);
         $this->assertSame('order.updated', $event->type);
-        $this->assertSame($order->id, $event->payload['id']);
-        $this->assertSame('created', $event->payload['status']);
-        $this->assertSame($order->total_minor, $event->payload['total_minor']);
-        $this->assertArrayHasKey('offer_id', $event->payload);
+
+        $expected = OrderPresenter::toArray($order->fresh());
+        $actual = $event->payload;
+
+        $this->assertArrayHasKey('stream_cursor', $actual);
+        unset($expected['stream_cursor'], $actual['stream_cursor']);
+
+        $this->assertEquals($expected, $actual);
+
+        // Точечно — то, что раньше проверялось изолированно и обязано
+        // остаться верным после перехода на презентер.
+        $this->assertSame($order->id, $actual['id']);
+        $this->assertSame('created', $actual['status']);
+        $this->assertSame($order->total_minor, $actual['total_minor']);
+        $this->assertSame($offer->id, $actual['offer_id']);
+
+        // И собственно расширение контракта задачи 4a — то, чего в узком
+        // наборе полей не было вовсе.
+        $this->assertSame($offer->id, $actual['offer']['offer_id']);
+        $this->assertNull($actual['reservation'], 'у заказа из этого теста нет единицы склада');
+        $this->assertFalse($actual['refund_required']);
     }
 
     public function test_publish_order_returns_null_for_missing_order(): void
