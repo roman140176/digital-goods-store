@@ -52,14 +52,23 @@ let paymentSent = false
 let currentOrder: Order | null = null
 
 /**
- * Последняя известная цена предложения ИЗ ПОТОКА catalog — независимо от
- * amount_minor заказа (6.6 спеки). Заполняется один раз из первого снапшота
- * заказа (чтобы отказ клиента, случившийся, пока вкладка была закрыта, был
- * виден сразу), а дальше — только живыми offer.updated: снапшоты заказа
- * (опрос, order.updated) её больше не трогают, иначе более старый снапшот,
- * пришедший позже свежего события потока, откатил бы цену назад.
+ * Последняя известная цена предложения этого заказа — независимо от
+ * amount_minor заказа (6.6 спеки). Источник переключается по мере того, что
+ * доступно:
+ *
+ * 1. Пока живого события потока ещё не было (livePriceReceived === false) —
+ *    источник правды снапшот заказа (applyOrder), то есть и опрос-фоллбэк
+ *    тоже: без этого требование 1.3 ломалось бы ровно тогда, когда стример
+ *    недоступен, — фоллбэк исправно получал бы свежую цену в каждом
+ *    снапшоте, но плашка никогда не появлялась бы, потому что её обновляла
+ *    только несуществующая живая подписка.
+ * 2. С первого живого offer.updated (applyOfferEvent) — источник правды
+ *    только поток, снапшоты эту переменную больше не трогают: иначе более
+ *    старый снапшот (опрос вообще не гарантирует порядок доставки
+ *    относительно потока) откатил бы уже применённую свежую цену назад.
  */
 let latestOfferPrice: number | null = null
+let livePriceReceived = false
 
 /** Гард по версии для order.updated: тот же принцип, что и shouldApply в realtime.ts, но ключ здесь один — сам заказ. */
 let lastOrderEventId = 0
@@ -129,7 +138,7 @@ function priceChangeBlock(order: Order): string {
 
   return `<div class="order-price-change" data-price-change>
     <p>Цена изменилась: ${money(order.amount_minor, order.currency)} → ${money(latestOfferPrice, order.currency)}</p>
-    <button class="order-button" type="button" data-accept-price>Оплатить по новой цене</button>
+    <button class="order-button" type="button" data-accept-price ${acceptingPrice ? 'disabled' : ''}>Оплатить по новой цене</button>
   </div>`
 }
 
@@ -324,15 +333,21 @@ function ensureCountdown(order: Order): void {
 let realtimeStarted = false
 
 /**
- * Первый успешный снапшот заказа сеет latestOfferPrice и поднимает поток —
- * не только у самого первого refresh(), но и у любого, включая ретрай
- * опроса после того, как первый запрос не удался: иначе временный сбой
- * бэкенда при загрузке страницы навсегда оставил бы её без потока, лишь
- * на опросе (см. STREAM_GRACE_MS выше — окно для решения даётся один раз,
- * при самой первой попытке подключения).
+ * Применяет снапшот заказа — из первого refresh(), из ретрая опроса, из
+ * poll() фоллбэка. Поднимает поток при самом первом успешном снапшоте,
+ * откуда бы он ни пришёл: иначе временный сбой бэкенда при загрузке
+ * страницы навсегда оставил бы её без потока, лишь на опросе (см.
+ * STREAM_GRACE_MS выше — окно для решения даётся один раз, при самой первой
+ * попытке подключения).
+ *
+ * latestOfferPrice обновляется из КАЖДОГО снапшота, пока livePriceReceived
+ * ещё false (см. её докблок) — не только из первого: пока стример
+ * недоступен, единственный способ узнать о смене цены — это опрос, и без
+ * обновления на каждом тике плашка цены (1.3 ТЗ) никогда не появилась бы в
+ * этом режиме.
  */
 function applyOrder(order: Order): void {
-  if (currentOrder === null && order.offer !== null) {
+  if (!livePriceReceived && order.offer !== null) {
     latestOfferPrice = order.offer.price_minor
   }
 
@@ -375,7 +390,13 @@ async function pay(id: string, result: 'success' | 'fail'): Promise<void> {
   }
 }
 
-/** Идёт запрос reprice — вторая попытка (двойной клик) не бронирует лишний сетевой запрос: reprice и так идемпотентен, но клику незачем удваивать его без причины. */
+/**
+ * Идёт запрос reprice — вторая попытка (двойной клик) не бронирует лишний
+ * сетевой запрос: reprice и так идемпотентен, но клику незачем удваивать
+ * его без причины. Кнопка при этом тоже гаснет синхронно (см.
+ * priceChangeBlock) — как и у кнопок оплаты, защита не только на уровне
+ * этого флага, но и видна в разметке.
+ */
 let acceptingPrice = false
 
 /**
@@ -389,6 +410,7 @@ async function acceptNewPrice(id: string): Promise<void> {
   }
 
   acceptingPrice = true
+  render()
 
   try {
     const order = await repriceOrder(id, latestOfferPrice)
@@ -406,10 +428,14 @@ async function acceptNewPrice(id: string): Promise<void> {
     } else {
       notify(error instanceof ApiError ? error.message : 'Не удалось принять новую цену.')
     }
-
-    render()
   } finally {
+    // Флаг гасится ДО финального render(), а не после: иначе разметка успела
+    // бы отрисоваться с disabled="" по ещё не сброшенному acceptingPrice, и
+    // кнопка осталась бы задизейбленной навсегда после неудачного reprice —
+    // следующий render() пришёл бы нескоро (или не пришёл бы вовсе, если
+    // плашка при этом больше ни от чего не перерисовывается).
     acceptingPrice = false
+    render()
   }
 }
 
@@ -501,7 +527,18 @@ function applyOfferEvent(envelope: StreamEnvelope): void {
 
   const price = envelope.payload.price_minor
 
-  if (typeof price === 'number' && price !== latestOfferPrice) {
+  if (typeof price !== 'number') {
+    return
+  }
+
+  // С первого живого события эта переменная переходит под управление потока
+  // (см. докблок latestOfferPrice) — даже если цена в этом кадре совпала с
+  // уже известной и рендерить нечего, флаг всё равно поднимается: иначе
+  // следующий снапшот (опрос ещё может быть активен, если поток открылся
+  // только что) продолжил бы её перезаписывать.
+  livePriceReceived = true
+
+  if (price !== latestOfferPrice) {
     latestOfferPrice = price
     render()
   }
@@ -528,6 +565,22 @@ function startRealtime(cursor: number): void {
     onOpen: () => {
       streamOpened = true
       stopFallbackPoll()
+    },
+    // Поток однажды открылся и упал — фоллбэк обязан вернуться сам, а не
+    // ждать, пока реконнект (до 15 с по расписанию realtime.ts) снова
+    // поднимет соединение: без этого страница молчала бы всё это время не
+    // только по цене, но и по статусу заказа.
+    //
+    // livePriceReceived тоже сбрасывается: «доверять только потоку»
+    // (см. её докблок) верно, только пока поток действительно жив. Если он
+    // умер, единственный оставшийся источник правды — снова снапшоты
+    // фоллбэк-опроса, и им нужно разрешить писать в latestOfferPrice, иначе
+    // ровно этот же баг вернётся при ВТОРОМ падении потока — после того как
+    // он один раз уже успел прислать хоть одно живое событие.
+    onClose: () => {
+      streamOpened = false
+      livePriceReceived = false
+      startFallbackPoll()
     },
   })
 }

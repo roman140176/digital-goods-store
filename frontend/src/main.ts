@@ -189,7 +189,14 @@ function renderRows(items: readonly CatalogItem[]): void {
 
 let disconnectRealtime: (() => void) | undefined
 
-/** Открывает (или переоткрывает после resync) подписку на топик каталога. */
+/**
+ * Открывает подписку на топик каталога.
+ *
+ * После resync соединение НЕ переоткрывается этой функцией — сервер сам
+ * репозиционирует тот же поток на свежий курсор в одном и том же
+ * рукопожатии (см. onResync ниже и 4.4 спеки), здесь достаточно перечитать
+ * снапшот.
+ */
 function subscribeToCatalog(cursor: number): void {
   disconnectRealtime?.()
   disconnectRealtime = connectRealtime({
