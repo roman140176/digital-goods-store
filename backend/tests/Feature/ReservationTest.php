@@ -48,7 +48,7 @@ final class ReservationTest extends TestCase
         $this->assertSame($response->json('id'), $units[0]->reserved_order_id);
     }
 
-    public function test_second_buyer_gets_sold_out_with_a_cheaper_alternative_offered(): void
+    public function test_second_buyer_gets_sold_out_with_another_sellers_offer(): void
     {
         $this->postJson('/api/orders', ['offer_id' => $this->hot->id],
             ['Idempotency-Key' => 'res-2'])->assertCreated();
@@ -108,8 +108,78 @@ final class ReservationTest extends TestCase
             ['offer_id' => $this->hot->id, 'promo_code' => 'WELCOME10'],
             ['Idempotency-Key' => 'res-promo-2'])->assertStatus(409);
 
-        // Откат транзакции обязан вернуть и слот промокода: иначе отказ по
-        // складу тихо съедал бы лимит.
+        // Захват склада внутри транзакции идёт СТРОГО раньше резерва
+        // промокода (см. порядок в CreateOrder и 6.2 спеки): если единицы
+        // нет, до попытки занять слот промокода дело не доходит вовсе, а не
+        // "доходит, но откатывается". Ноль записей здесь доказывает именно
+        // это — что резерва не было, а не что он был снят откатом.
         $this->assertSame(0, PromoRedemption::query()->count());
+    }
+
+    /**
+     * Ревью после задачи 4a, Important 1. Резолвинг предложения по sku
+     * зависит от того, есть ли ПРЯМО СЕЙЧАС свободная единица (см.
+     * StockService::bestOfferFor) — а у повторного вызова с тем же ключом
+     * идемпотентности её вполне может не быть: она уже захвачена ПЕРВЫМ же
+     * вызовом ЭТОГО клиента. Раньше `resolveOffer()` вызывался до поиска
+     * существующего заказа по ключу, поэтому повтор, попавший в момент,
+     * когда остальные предложения позиции успели распродать, получал
+     * ложный 409 sold_out вместо своего же заказа.
+     */
+    public function test_repeated_request_by_sku_returns_existing_order_even_if_stock_is_gone_now(): void
+    {
+        $headers = ['Idempotency-Key' => 'res-retry-after-sellout'];
+
+        // Первый вызов забирает единственную единицу самого дешёвого
+        // предложения — резолвинг по sku внутри CreateOrder выбирает именно
+        // его, ровно как проверяет CatalogSeedTest.
+        $first = $this->postJson('/api/orders', ['sku' => $this->hot->product_sku], $headers);
+        $first->assertCreated();
+
+        // Все ОСТАЛЬНЫЕ предложения позиции распроданы кем-то другим, пока
+        // клиент ждал ответ на оборвавшемся соединении: bestOfferFor не
+        // нашёл бы теперь вообще ничего, если бы резолвил заново.
+        $otherOfferIds = Offer::query()
+            ->where('product_sku', $this->hot->product_sku)
+            ->where('id', '!=', $this->hot->id)
+            ->pluck('id');
+
+        StockUnit::query()->whereIn('offer_id', $otherOfferIds)
+            ->update(['state' => 'sold', 'sold_at' => now()]);
+
+        // Повтор с тем же ключом и тем же sku обязан вернуть уже
+        // существующий заказ, а не 409 sold_out: клиент просто не получил
+        // ответ на первый раз, бронь у него уже есть.
+        $second = $this->postJson('/api/orders', ['sku' => $this->hot->product_sku], $headers);
+
+        $second->assertOk();
+        $this->assertSame($first->json('id'), $second->json('id'));
+        $this->assertSame(1, Order::query()->count());
+    }
+
+    /**
+     * Ревью после задачи 4a, Important 2. status — единственный механизм,
+     * которым предложение снимается с продажи без удаления строки (админ
+     * скрыл его, пока у покупателя уже была открыта страница с этим
+     * offer_id). Путь по sku фильтрует только активные предложения
+     * (StockService::firstAvailableOfferId), а явный offer_id раньше не
+     * проверял статус вовсе — единица захватывалась в обход скрытия.
+     */
+    public function test_explicit_offer_id_to_a_hidden_offer_is_sold_out_too(): void
+    {
+        $this->hot->update(['status' => 'hidden']);
+
+        $response = $this->postJson('/api/orders', ['offer_id' => $this->hot->id],
+            ['Idempotency-Key' => 'res-hidden-1']);
+
+        $response->assertStatus(409)->assertJsonPath('reason', 'sold_out');
+
+        $this->assertNotNull($response->json('alternative.offer_id'));
+        $this->assertNotSame($this->hot->id, $response->json('alternative.offer_id'));
+
+        // Единица скрытого предложения не должна была тронуться захватом.
+        $this->assertSame('available', StockUnit::query()
+            ->where('offer_id', $this->hot->id)->firstOrFail()->state);
+        $this->assertSame(0, Order::query()->count());
     }
 }

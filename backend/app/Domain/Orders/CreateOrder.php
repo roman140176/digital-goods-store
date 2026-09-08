@@ -33,6 +33,16 @@ final class CreateOrder
      * возвращаем уже существующий заказ вместо создания второго (и вместо
      * повторного захвата единицы — она уже захвачена первым запросом).
      *
+     * Существующий заказ по ключу ищется РАНЬШЕ, чем резолвится предложение
+     * (см. правку после ревью задачи 4a): резолвинг по sku зависит от того,
+     * есть ли ПРЯМО СЕЙЧАС свободная единица, а у повторного вызова её может
+     * не быть — она уже захвачена первым же вызовом этого клиента, и если
+     * к моменту повтора остальные предложения позиции распроданы кем-то
+     * другим, резолвинг решил бы, что всё раскуплено, хотя у клиента уже
+     * есть действующий заказ. Резолвинг по явному offer_id от текущего
+     * остатка не зависит, но найденный по ключу заказ всё равно возвращается
+     * раньше — незачем резолвить то, что не понадобится.
+     *
      * Порядок внутри транзакции важен (см. 6.2 спеки): вставка заказа →
      * захват единицы → резерв слота промокода → публикация события →
      * аудит. Нет единицы — вся транзакция откатывается: заказ не создаётся
@@ -52,9 +62,17 @@ final class CreateOrder
         ?string $forcedId = null,
         ?int $offerId = null,
     ): array {
-        $offer = $this->resolveOffer($sku, $offerId);
+        $result = DB::transaction(function () use ($sku, $offerId, $promoCode, $idempotencyKey, $forcedId): array {
+            $existing = $this->findExisting($idempotencyKey, $forcedId);
 
-        $result = DB::transaction(function () use ($offer, $offerId, $promoCode, $idempotencyKey, $forcedId): array {
+            if ($existing !== null) {
+                $this->assertMatchesRequest($existing, $sku, $offerId, $promoCode, $idempotencyKey);
+
+                return ['order' => $existing, 'created' => false];
+            }
+
+            $offer = $this->resolveOffer($sku, $offerId);
+
             $id = $forcedId ?? 'ord_'.strtolower((string) Str::ulid());
 
             $inserted = DB::affectingStatement(
@@ -75,30 +93,15 @@ final class CreateOrder
             );
 
             if ($inserted === 0) {
-                // Конфликт возможен по ключу идемпотентности и по id: второй
-                // случай — только у служебной ручки со заданным id, которой
-                // проверяется «вебхук раньше заказа». Оба исхода означают одно:
-                // заказ уже есть, создавать второй нельзя.
-                $existing = Order::query()->where('idempotency_key', $idempotencyKey)->first()
-                    ?? ($forcedId === null ? null : Order::query()->find($forcedId));
+                // Настоящая гонка: конкурентный запрос с тем же ключом успел
+                // вставить строку между проверкой выше и этой вставкой.
+                $existing = $this->findExisting($idempotencyKey, $forcedId);
 
                 if ($existing === null) {
                     throw new OrderConflict($idempotencyKey);
                 }
 
-                // sku сравнивается всегда — это часть любого запроса, явного
-                // или через sku напрямую. offer_id сравнивается, только если
-                // его явно назвал КЛИЕНТ: если он присылал просто sku, сервер
-                // сам мог выбрать другое предложение прямо сейчас (например,
-                // это же первое обращение только что забрало последнюю
-                // единицу прежнего выбора) — сравнивать с ним нечестно,
-                // повтор одного и того же запроса не должен превращаться в
-                // конфликт из-за движения остатков между вызовами.
-                if ($existing->sku !== $offer->product_sku
-                    || ($offerId !== null && (int) $existing->offer_id !== $offerId)
-                    || ($existing->promo_code ?? '') !== ($promoCode ?? '')) {
-                    throw new OrderConflict($idempotencyKey);
-                }
+                $this->assertMatchesRequest($existing, $sku, $offerId, $promoCode, $idempotencyKey);
 
                 return ['order' => $existing, 'created' => false];
             }
@@ -161,19 +164,79 @@ final class CreateOrder
     }
 
     /**
+     * Заказ уже существует под этим ключом идемпотентности — второй случай
+     * (по id) достижим только у служебной ручки со заданным id, которой
+     * проверяется «вебхук раньше заказа».
+     */
+    private function findExisting(string $idempotencyKey, ?string $forcedId): ?Order
+    {
+        return Order::query()->where('idempotency_key', $idempotencyKey)->first()
+            ?? ($forcedId === null ? null : Order::query()->find($forcedId));
+    }
+
+    /**
+     * Тот же ключ с другим телом — это не повтор, а ошибка клиента: молча
+     * вернуть заказ на другой товар или предложение нельзя.
+     *
+     * offer_id сравнивается, только если его явно назвал КЛИЕНТ в этом
+     * вызове: offer_id — устойчивый идентификатор ровно того предложения,
+     * которое он просил, и это сравнение не зависит от текущего остатка.
+     * Путь через голый sku сравнивается по sku напрямую (а не по
+     * пере-резолвленному предложению — см. правку после ревью задачи 4a):
+     * когда клиент не называет offer_id, сервер сам выбирает предложение
+     * заново при каждом вызове, и остаток между вызовами мог сдвинуться —
+     * сравнивать с тем, что сервер выбрал бы ПРЯМО СЕЙЧАС, нечестно к
+     * повтору одного и того же запроса.
+     */
+    private function assertMatchesRequest(
+        Order $existing,
+        ?string $sku,
+        ?int $offerId,
+        ?string $promoCode,
+        string $idempotencyKey,
+    ): void {
+        $offerMismatch = $offerId !== null && (int) $existing->offer_id !== $offerId;
+        $skuMismatch = $offerId === null && $sku !== null && $existing->sku !== $sku;
+        $promoMismatch = ($existing->promo_code ?? '') !== ($promoCode ?? '');
+
+        if ($offerMismatch || $skuMismatch || $promoMismatch) {
+            throw new OrderConflict($idempotencyKey);
+        }
+    }
+
+    /**
      * offer_id — источник истины, если клиент его назвал. Иначе по sku
      * выбирается лучшее активное предложение со свободной единицей.
      *
-     * Если и такого нет (позиция раскуплена целиком, у всех предложений
-     * пусто) — это тоже sold_out, просто без конкретного «раскупленного»
-     * предложения и без альтернативы: offerId=0 сюда никогда не попадает в
-     * ответ клиенту (контроллер его не показывает), это исключительно
-     * внутренний признак «предложения не было вовсе».
+     * Явно названное предложение, снятое с продажи (status='hidden'),
+     * трактуется как sold_out с той же альтернативой, что и раскупленное:
+     * status — единственный механизм, которым предложение снимается с
+     * продажи, не удаляя строку, и обход этого захватом по прямому
+     * offer_id (например, админ скрыл предложение, пока у покупателя уже
+     * была открыта страница с его id) убил бы весь смысл поля (см. правку
+     * после ревью задачи 4a).
+     *
+     * Если по sku активного предложения со свободной единицей нет вовсе
+     * (позиция раскуплена целиком) — это тоже sold_out, просто без
+     * конкретного «раскупленного» предложения и без альтернативы:
+     * offerId=0 сюда никогда не попадает в ответ клиенту (контроллер его не
+     * показывает), это исключительно внутренний признак «предложения не
+     * было вовсе».
      */
     private function resolveOffer(?string $sku, ?int $offerId): Offer
     {
         if ($offerId !== null) {
-            return Offer::query()->findOrFail($offerId);
+            $offer = Offer::query()->findOrFail($offerId);
+
+            if ($offer->status !== 'active') {
+                throw new SoldOut(
+                    $offer->product_sku,
+                    $offer->id,
+                    $this->stock->alternativeFor($offer->product_sku, $offer->id),
+                );
+            }
+
+            return $offer;
         }
 
         $offer = $this->stock->bestOfferFor((string) $sku);
