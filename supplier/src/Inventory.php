@@ -110,20 +110,32 @@ final class Inventory
         return (int) Db::conn()->exec("DELETE FROM keys WHERE state = 'free'");
     }
 
-    /** Пополнение склада: генерирует новые ключи в формате пула из ТЗ. */
+    /**
+     * Пополнение склада: один запрос на весь объём вместо цикла построчных
+     * вставок. Объёмный каталог (см. CatalogVolumeSeeder) требует тысяч
+     * единиц на поставщика — прежний цикл с отдельным execute() на каждый
+     * ключ не укладывался в короткий таймаут, с которым магазин ходит к
+     * поставщику (см. store.supplier_timeout, короткий он намеренно).
+     * Код каждой строки собирается прямо в SQL: random()/clock_timestamp()
+     * volatile-функции, Postgres пересчитывает их на каждую строку
+     * generate_series, поэтому коллизий внутри одной вставки не возникает.
+     */
     public static function restock(int $count): int
     {
-        $stmt = Db::conn()->prepare(
-            "INSERT INTO keys (code, state) VALUES (:code, 'free') ON CONFLICT (code) DO NOTHING"
-        );
+        $stmt = Db::conn()->prepare(<<<'SQL'
+            INSERT INTO keys (code, state)
+            SELECT upper(
+                     substr(md5(random()::text || clock_timestamp()::text), 1, 4) || '-' ||
+                     substr(md5(random()::text || clock_timestamp()::text), 1, 4) || '-' ||
+                     substr(md5(random()::text || clock_timestamp()::text), 1, 4)
+                   ), 'free'
+              FROM generate_series(1, :count)
+            ON CONFLICT (code) DO NOTHING
+            SQL);
 
-        $added = 0;
-        for ($i = 0; $i < $count; $i++) {
-            $stmt->execute([':code' => self::generateCode()]);
-            $added += $stmt->rowCount();
-        }
+        $stmt->execute([':count' => $count]);
 
-        return $added;
+        return $stmt->rowCount();
     }
 
     /**
@@ -184,21 +196,5 @@ final class Inventory
              ON CONFLICT (key) DO UPDATE SET value = excluded.value'
         );
         $stmt->execute([':key' => $key, ':value' => $value]);
-    }
-
-    private static function generateCode(): string
-    {
-        $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-        $groups = [];
-
-        for ($g = 0; $g < 3; $g++) {
-            $group = '';
-            for ($i = 0; $i < 4; $i++) {
-                $group .= $alphabet[random_int(0, strlen($alphabet) - 1)];
-            }
-            $groups[] = $group;
-        }
-
-        return implode('-', $groups);
     }
 }

@@ -16,6 +16,7 @@ help:
 	@echo "make destroy   — остановить и снести данные"
 	@echo "make fresh     — пересоздать схему, засеять заново, обнулить склады"
 	@echo "make front     — собрать витрину (node в контейнере, на хосте ничего не нужно)"
+	@echo "make seed-catalog — засеять объёмный каталог и докупить склады поставщиков"
 	@echo "make race-all  — прогнать все состязательные сценарии"
 	@echo "make test      — модульные и функциональные тесты"
 	@echo "make logs      — логи воркера и приложения"
@@ -119,3 +120,11 @@ race-timeout-leak:
 .PHONY: race-error-after-issue
 race-error-after-issue:
 	$(RACE)/race-error-after-issue.php
+
+# ---- объёмный каталог (задача 5 ТЗ: мгновенный поиск) ----
+
+.PHONY: seed-catalog
+seed-catalog:
+	$(EXEC) php artisan db:seed --class=CatalogVolumeSeeder --force
+	@echo "Пополняю склады поставщиков под объём каталога..."
+	$(EXEC) php artisan stock:sync-suppliers

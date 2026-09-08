@@ -77,7 +77,10 @@ if ($path === '/config') {
 }
 
 if ($path === '/restock' && $method === 'POST') {
-    $count = max(1, (int) (body()['count'] ?? 1));
+    // Верхняя граница — не защита от нагрузки (батч в Inventory::restock
+    // справляется и с большим количеством одним запросом), а страховка от
+    // одной лишней цифры в запросе синхронизации складов под объёмный каталог.
+    $count = max(1, min(50000, (int) (body()['count'] ?? 1)));
     json(['supplier' => supplierId(), 'added' => Inventory::restock($count)] + Inventory::stats());
 }
 
