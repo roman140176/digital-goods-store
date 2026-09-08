@@ -133,13 +133,17 @@ final class PaymentReservationTest extends TestCase
         $this->artisanExpire($order);
 
         // Единственная единица этого предложения (см. CatalogSeedTest) не
-        // просто просрочена — её увёл другой покупатель, пока эта ждала
-        // оплаты. Без этого шага единица сама вернулась бы в продажу и
-        // поздняя оплата перезахватила бы её же саму (см. ветку 2 —
+        // просто просрочена — её успел купить настоящий второй покупатель,
+        // пока эта ждала оплаты: второй заказ реально захватывает и
+        // оплачивает освободившуюся единицу, поэтому reserved_order_id
+        // после продажи указывает на РЕАЛЬНЫЙ заказ (см. 3.2 спеки), а не
+        // остаётся искусственно обнулённым. Без этого шага единица сама
+        // вернулась бы в продажу, и поздняя оплата первого заказа
+        // перезахватила бы её же саму (см. ветку 2 —
         // test_late_payment_reclaims_another_unit_of_the_same_offer): здесь
         // проверяется именно ветка 3 — единиц не осталось вовсе.
-        StockUnit::query()->where('offer_id', $this->hot->id)
-            ->update(['state' => 'sold', 'sold_at' => now()]);
+        $otherBuyer = $this->order('pay-4-other-buyer');
+        $this->webhook($otherBuyer);
 
         $this->webhook($order);
 
@@ -150,6 +154,28 @@ final class PaymentReservationTest extends TestCase
         $this->assertSame('out_of_stock', $fresh->status->value);
         $this->assertTrue((bool) $fresh->refund_required);
         $this->assertSame('evt_'.$order->id.'_paid_1', $fresh->paid_event_id);
+    }
+
+    /**
+     * Поведение унаследовано без изменений из первого этапа (applyFailed
+     * выходит из created — reservation_expired туда не входит), но
+     * регрессионного теста на него не было. Отказ оплаты, пришедший после
+     * истечения брони, не должен ничего трогать: заказ уже мёртв для этого
+     * события, а единица давно вернулась в продажу для всех.
+     */
+    public function test_failed_event_does_not_touch_an_order_whose_reservation_already_expired(): void
+    {
+        $order = $this->order('pay-9');
+        $this->artisanExpire($order);
+
+        $this->webhook($order, 'failed', 'evt_'.$order->id.'_failed_1');
+
+        $this->assertSame('reservation_expired', $order->refresh()->status->value);
+
+        $unit = StockUnit::query()->where('offer_id', $this->hot->id)->firstOrFail();
+        $this->assertSame('available', $unit->state);
+        $this->assertNull($unit->reserved_order_id);
+        $this->assertNull($unit->reserved_until);
     }
 
     public function test_applying_the_same_payment_twice_keeps_one_sold_unit(): void
