@@ -14,7 +14,15 @@ Schedule::command(ReconcileDeliveries::class)->everyMinute()->withoutOverlapping
 // минуты сверх дедлайна. everySecond() — sub-minute scheduling Laravel 11+,
 // его подхватывает только планировщик-цикл (`schedule:work`), а не разовый
 // cron-вызов `schedule:run` раз в минуту.
-Schedule::command(ReleaseExpiredReservations::class)->everySecond()->withoutOverlapping();
+//
+// withoutOverlapping(2): аргумент обязателен, а не по умолчанию. Без него
+// лок живёт 1440 минут (сутки) — для минутного ReconcileDeliveries это
+// почти не важно, а для секундного тика фатально: один по-настоящему
+// зависший прогон (обрыв соединения с базой, зависшая блокировка строки) на
+// сутки остановил бы снятие броней вообще, то есть ровно то, от чего
+// планировщик должен защищать. 2 минуты — запас на порядки больше нормы:
+// живой тик занимает 100–150 мс (см. отчёт задачи 5).
+Schedule::command(ReleaseExpiredReservations::class)->everySecond()->withoutOverlapping(2);
 
 // Ретеншн журнала реалтайм-событий — час (см. PruneStreamEvents), чистка раз
 // в пять минут: журнал легковесный, чаще незачем, а реже — раздувает таблицу.

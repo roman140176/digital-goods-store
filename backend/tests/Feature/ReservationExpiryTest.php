@@ -6,6 +6,9 @@ namespace Tests\Feature;
 
 use App\Models\Offer;
 use App\Models\Order;
+use App\Models\Promocode;
+use App\Models\PromoRedemption;
+use App\Models\Seller;
 use App\Models\StockUnit;
 use App\Models\StreamEvent;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -102,9 +105,98 @@ final class ReservationExpiryTest extends TestCase
     {
         $orderId = $this->order('exp-4');
 
-        $this->postJson("/api/dev/reservations/{$orderId}/expire")->assertOk();
+        $this->postJson("/api/dev/reservations/{$orderId}/expire")
+            ->assertOk()
+            ->assertJsonPath('expired', true);
+
         $this->artisan('reservations:release')->assertSuccessful();
 
         $this->assertSame('reservation_expired', Order::query()->findOrFail($orderId)->status->value);
+
+        // Бронь уже снята планировщиком выше — просрочивать здесь нечего, и
+        // признак обязан честно показать false, а не true просто по факту
+        // 200 OK: сценарии приёмки различают исход именно по этому полю.
+        $this->postJson("/api/dev/reservations/{$orderId}/expire")
+            ->assertOk()
+            ->assertJsonPath('expired', false);
+    }
+
+    /**
+     * Minor B ревью: все четыре теста выше держат по одному заказу за раз,
+     * а циклы с array_unique() в ReleaseExpiredReservations нужно проверить
+     * именно на N > 1 — включая дедупликацию: предложение с двумя истёкшими
+     * юнитами обязано получить одно offer.updated, а не два.
+     */
+    public function test_multiple_expiries_in_one_tick_expire_every_order_and_publish_each_offer_once(): void
+    {
+        $seller = Seller::query()->create(['name' => 'Второй тест-продавец', 'rating' => 4.5]);
+        $twoUnitOffer = Offer::query()->create([
+            'product_sku' => 'KEY-CS2-PRIME',
+            'seller_id' => $seller->id,
+            'supplier_id' => 'a',
+            'price_minor' => 500000,
+            'currency' => 'RUB',
+            'status' => 'active',
+        ]);
+        StockUnit::query()->create(['offer_id' => $twoUnitOffer->id, 'state' => 'available']);
+        StockUnit::query()->create(['offer_id' => $twoUnitOffer->id, 'state' => 'available']);
+
+        // Два заказа на одно и то же (новое) предложение — оба его юнита.
+        $orderA = (string) $this->postJson('/api/orders', ['offer_id' => $twoUnitOffer->id],
+            ['Idempotency-Key' => 'multi-a'])->assertCreated()->json('id');
+        $orderB = (string) $this->postJson('/api/orders', ['offer_id' => $twoUnitOffer->id],
+            ['Idempotency-Key' => 'multi-b'])->assertCreated()->json('id');
+
+        // Третий заказ — на СОВСЕМ ДРУГОЕ предложение: тик не должен
+        // останавливаться на первом затронутом предложении.
+        $orderC = $this->order('multi-c');
+
+        StockUnit::query()->whereIn('reserved_order_id', [$orderA, $orderB, $orderC])
+            ->update(['reserved_until' => now()->subMinutes(10)]);
+        StreamEvent::query()->delete();
+
+        $this->artisan('reservations:release')->assertSuccessful();
+
+        foreach ([$orderA, $orderB, $orderC] as $orderId) {
+            $this->assertSame('reservation_expired', Order::query()->findOrFail($orderId)->status->value);
+        }
+
+        $this->assertSame(2, StockUnit::query()->where('offer_id', $twoUnitOffer->id)
+            ->where('state', 'available')->count());
+
+        $offerEvents = StreamEvent::query()->where('type', 'offer.updated')->get();
+
+        // Оба юнита twoUnitOffer истекли в ОДНОМ тике — событие обязано
+        // уйти один раз, а не по разу на каждый освободившийся юнит.
+        $this->assertCount(1, $offerEvents->filter(
+            fn (StreamEvent $event): bool => $event->payload['offer_id'] === $twoUnitOffer->id,
+        ));
+        $this->assertCount(1, $offerEvents->filter(
+            fn (StreamEvent $event): bool => $event->payload['offer_id'] === $this->hot->id,
+        ));
+    }
+
+    /**
+     * Minor C ревью: по спеке (6.4) слот промокода истёкшего заказа сгорает
+     * — иначе поздняя оплата истёкшей брони получила бы скидку без реально
+     * занятого слота лимита. Поведение сейчас обеспечено просто отсутствием
+     * кода (ReleaseExpiredReservations не трогает promocodes/promo_redemptions
+     * вовсе) — этот тест защищает от того, что будущая правка случайно
+     * начнёт освобождать слот при истечении брони.
+     */
+    public function test_promo_slot_is_not_released_when_the_reservation_expires(): void
+    {
+        $orderId = (string) $this->postJson('/api/orders',
+            ['offer_id' => $this->hot->id, 'promo_code' => 'WELCOME10'],
+            ['Idempotency-Key' => 'exp-promo'])->assertCreated()->json('id');
+
+        $this->backdateReservation($orderId);
+        $this->artisan('reservations:release')->assertSuccessful();
+
+        $this->assertSame('reservation_expired', Order::query()->findOrFail($orderId)->status->value);
+
+        $this->assertSame(1, Promocode::query()->findOrFail('WELCOME10')->used_count);
+        $this->assertSame(1, PromoRedemption::query()->where('order_id', $orderId)->count());
+        $this->assertNull(PromoRedemption::query()->where('order_id', $orderId)->value('released_at'));
     }
 }

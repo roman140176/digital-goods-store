@@ -59,8 +59,15 @@ final class DevController extends Controller
     {
         abort_if(app()->environment('production'), 404);
 
-        $stock->expireNow($order->id);
+        $expired = $stock->expireNow($order->id);
 
-        return response()->json(OrderPresenter::toArray($order->refresh()));
+        // expired=false — не ошибка клиента (бронь уже снята планировщиком
+        // или единица уже продана до этого вызова), поэтому код ответа
+        // остаётся 200 в обоих случаях: сценарии приёмки, дёргающие эту
+        // ручку в цикле, различают исход по полю, а не по статусу ответа.
+        return response()->json(array_merge(
+            ['expired' => $expired],
+            OrderPresenter::toArray($order->refresh()),
+        ));
     }
 }
