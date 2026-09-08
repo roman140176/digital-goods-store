@@ -27,6 +27,11 @@ Race::check($freeB > 0, 'у резервного поставщика есть �
 Race::step('поставщик A: закрепить ключ и ответить 503 (issue_then_error = 1)');
 supplier_config('a', ['issue_then_error' => 1]);
 
+// Тот же довод, что и в race-timeout-leak.php: сбой настроен у A, а именно
+// туда маршрутизирует самое дешёвое предложение KEY-GTA5 (supplier_id='a' по
+// построению сидера) — но только пока у него есть свободная единица.
+ensure_offer_available('KEY-GTA5', 1);
+
 $order = create_order('KEY-GTA5');
 
 Race::step('заказ '.$order['id'].', оплачиваем и ждём исхода выдачи');

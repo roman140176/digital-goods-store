@@ -22,7 +22,18 @@ suppliers_ready();
 Race::step('A. вебхук «оплачено» приходит ДО создания заказа');
 
 $orderId = 'ord_early_'.bin2hex(random_bytes(6));
-$totalMinor = 129000; // KEY-CS2-PRIME
+
+// Сумма читается у предложения ЖИВЬЁМ, а не хардкодом: /api/dev/orders ниже
+// резолвит заказ по голому sku (bestOfferFor — самое дешёвое АКТИВНОЕ
+// предложение со свободной единицей), и после задачи 2 второго этапа это
+// не обязательно тот же самый offer_id и та же цена, что были на момент
+// написания сценария (см. race-double-click.php про скудный сток
+// KEY-CS2-PRIME). ensure_offer_available подкачивает именно ТО предложение,
+// которое затем резолвит bestOfferFor, — цена берётся из того же ответа,
+// поэтому сумма вебхука ниже гарантированно совпадёт с amount_minor заказа,
+// который появится позже.
+$hotOffer = ensure_offer_available('KEY-CS2-PRIME', 1);
+$totalMinor = (int) $hotOffer['price_minor'];
 
 $early = request(
     'POST',
@@ -52,6 +63,7 @@ Race::check(count(keys_for_order($orderId)) === 1, 'за заказом закр
 // ---------------------------------------------------------------- B
 Race::step('B. «не оплачено» со СТАРШЕЙ меткой приходит после «оплачено»');
 
+ensure_offer_available('KEY-GTA5', 1);
 $order = create_order('KEY-GTA5');
 $now = time();
 

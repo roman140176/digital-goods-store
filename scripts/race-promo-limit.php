@@ -38,6 +38,25 @@ foreach ($scenarios as $code => $sku) {
     $remaining = (int) $before['remaining'];
     $maxUses = (int) $before['max_uses'];
 
+    // Остаток предложения — не предмет ЭТОГО сценария (лимит промокода — его
+    // предмет), но задача 2 второго этапа сделала его скромным: у самого
+    // дешёвого предложения KEY-CS2-PRIME сток намеренно равен единице (см.
+    // race-last-unit.php). Залп из 50 параллельных заказов резервирует
+    // единицу МОМЕНТАЛЬНО раньше проверки лимита (см. CreateOrder — захват
+    // единицы идёт до promo->reserve(), и провал по лимиту откатывает оба
+    // шага одной транзакцией) — но пока все 50 заявок летят одновременно, им
+    // просто физически неоткуда взять единицу, если её меньше 50, и залп
+    // словит постороннее sold_out вместо ожидаемого limit_reached. Остаток
+    // подкачивается на время залпа и возвращается к тому, что было, — чтобы
+    // не испортить демонстрационную единицу другим сценариям общего прогона.
+    $offerBefore = cheapest_offer($sku);
+    $offerId = (int) $offerBefore['offer_id'];
+    $availableBefore = (int) $offerBefore['available'];
+
+    if ($availableBefore < 50) {
+        admin_post('/admin/offers/'.$offerId.'/stock', ['units' => 50]);
+    }
+
     Race::step(sprintf(
         '%s: лимит %d, использовано %d, доступно %d — залп из 50 заказов',
         $code,
@@ -82,6 +101,11 @@ foreach ($scenarios as $code => $sku) {
         $other[] = $result['status'];
     }
 
+    // Возврат остатка К ТОМУ, ЧТО БЫЛО до подкачки выше — единицы, забранные
+    // победителями залпа, уже в состоянии reserved и в available не входят,
+    // так что эта установка их не трогает, а только убирает лишний запас.
+    admin_post('/admin/offers/'.$offerId.'/stock', ['units' => $availableBefore]);
+
     $after = promo_state($code);
 
     Race::check(
@@ -122,6 +146,7 @@ Race::step(sprintf(
     (int) ($state['max_uses'] ?? 0),
 ));
 
+ensure_offer_available('KEY-CS2-PRIME', 1);
 $order = create_order('KEY-CS2-PRIME', $code);
 $orderId = (string) ($order['id'] ?? '');
 $discount = (int) ($order['discount_minor'] ?? 0);

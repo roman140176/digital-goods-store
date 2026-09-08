@@ -24,6 +24,7 @@ help:
 	@echo "make front     — собрать витрину (node в контейнере, на хосте ничего не нужно)"
 	@echo "make seed-catalog — засеять объёмный каталог и докупить склады поставщиков"
 	@echo "make race-all  — прогнать все состязательные сценарии"
+	@echo "make demo-live — подготовить стенд под ручную демонстрацию (свежая база, склады, подсказки)"
 	@echo "make test      — модульные и функциональные тесты"
 	@echo "make logs      — логи приложения, воркера, планировщика и стримера"
 	@echo "make sh        — шелл внутри контейнера приложения"
@@ -133,6 +134,59 @@ race-timeout-leak:
 .PHONY: race-error-after-issue
 race-error-after-issue:
 	$(RACE)/race-error-after-issue.php
+
+.PHONY: race-last-unit
+race-last-unit:
+	$(RACE)/race-last-unit.php
+
+.PHONY: race-reservation-expiry
+race-reservation-expiry:
+	$(RACE)/race-reservation-expiry.php
+
+.PHONY: race-reserve-vs-expire
+race-reserve-vs-expire:
+	$(RACE)/race-reserve-vs-expire.php
+
+.PHONY: race-price-change-at-pay
+race-price-change-at-pay:
+	$(RACE)/race-price-change-at-pay.php
+
+.PHONY: race-stream-catchup
+race-stream-catchup:
+	$(RACE)/race-stream-catchup.php
+
+# ---- демонстрация вживую ----
+
+# Планировщик — тот же долгоживущий scheduler-контейнер, что и всегда (эта
+# цель его не перезапускает). Предупреждение и ожидание ниже нужны на
+# случай, если ДО make demo-live кто-то сделал make restart: schedule:work
+# при холодном старте молчит по секундным событиям (everySecond) вплоть до
+# ближайшей границы минуты — до ~59 секунд простоя, — и без этого ожидания
+# демонстрация «бронь истекла — товар вернулся всем» на живом стенде выглядела
+# бы зависшей, хотя это документированное поведение планировщика, не баг
+# (см. testGGsel, задача 5).
+.PHONY: demo-live
+demo-live:
+	$(EXEC) php artisan migrate:fresh --seed --force
+	$(RACE)/reset.php
+	@echo "Жду первый тик планировщика reservations:release..."
+	@i=0; \
+	until $(COMPOSE) logs --since=3s scheduler 2>/dev/null | grep -q 'reservations:release'; do \
+	  i=$$((i + 1)); \
+	  if [ $$i -ge 65 ]; then \
+	    echo "Планировщик молчит дольше минуты — это уже не штатная задержка холодного старта,"; \
+	    echo "проверьте: docker compose logs scheduler"; \
+	    break; \
+	  fi; \
+	  sleep 1; \
+	done
+	@echo "Планировщик тикает, стенд готов."
+	@echo ""
+	@echo "Витрина:  http://localhost:8085"
+	@echo "Админка:  http://localhost:8085/admin/orders?token=admin-secret-token"
+	@echo "Поток:    http://localhost:8085/api/stream?topics=catalog"
+	@echo "У дешёвого предложения CS2 Prime ровно одна единица — на нём и гонка (make race-last-unit)."
+	@echo "Просрочить бронь без ожидания TTL: POST /api/dev/reservations/{order}/expire"
 
 # ---- объёмный каталог (задача 5 ТЗ: мгновенный поиск) ----
 

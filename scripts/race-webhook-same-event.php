@@ -17,6 +17,11 @@ Race::title('50 одновременных вебхуков с ОДНИМ event_
 
 suppliers_ready();
 
+// См. комментарий в race-double-click.php: у KEY-CS2-PRIME дешёвое
+// предложение держит намеренно только одну единицу, и в общем прогоне
+// make race-all её может забрать более ранний сценарий.
+ensure_offer_available('KEY-CS2-PRIME', 1);
+
 $order = create_order('KEY-CS2-PRIME');
 $eventId = 'evt_'.bin2hex(random_bytes(10));
 

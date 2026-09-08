@@ -11,6 +11,24 @@ declare(strict_types=1);
  * Скрипты запускаются внутри контейнера app, поэтому по умолчанию адреса
  * внутренние (nginx, supplier-a, supplier-b). Переопределяются через
  * RACE_BASE_URL, RACE_SUPPLIER_A_URL, RACE_SUPPLIER_B_URL, RACE_ADMIN_TOKEN.
+ *
+ * Задача 14 добавляет три новых средства поверх HTTP:
+ *  - прямое чтение базы (RACE_DB_*) — не всякий инвариант виден в ответе API
+ *    (например, «ровно одна строка stock_units в состоянии reserved»), и
+ *    задача прямо требует опираться на состояние в базе, а не только на
+ *    ответы эндпоинтов. Пишем в базу напрямую только в одном месте
+ *    (race-stream-catchup.php, имитация ретеншна журнала) — везде, где
+ *    правку можно сделать существующей HTTP-ручкой (dev/admin), используется
+ *    именно она;
+ *  - запуск artisan-команды из скрипта (`artisan_start`/`artisan_finish`) —
+ *    нужен ровно там, где сценарий обязан гарантированно, а не по случайному
+ *    совпадению фаз секундного тика планировщика, столкнуть в одном и том же
+ *    интервале времени две транзакции — оплату и reservations:release.
+ *    Скрипт выполняется внутри контейнера app, где лежит тот же artisan,
+ *    что использует сам планировщик;
+ *  - SSE-клиент на fsockopen (`SseTestClient`) — для race-stream-catchup.php,
+ *    честный сокет вместо curl: curl не даёт читать событие за событием из
+ *    незакрытого потока.
  */
 
 final class Race
@@ -377,4 +395,328 @@ function admin_post(string $path, array $json = []): array
     $response = request('POST', base_url().$path.'?token='.urlencode(admin_token()), $json);
 
     return ['status' => $response['status'], 'body' => $response['body']];
+}
+
+// ------------------------------------------------------------------
+// Задача 14: предложения по offer_id, прямое чтение базы, artisan, SSE.
+// ------------------------------------------------------------------
+
+/** @return list<array<string, mixed>> активные предложения позиции, дешёвые впереди (форма OfferState) */
+function offers_for(string $sku): array
+{
+    $response = request('GET', base_url().'/api/offers?sku='.urlencode($sku));
+    $body = is_array($response['body']) ? $response['body'] : [];
+
+    return $body['offers'] ?? [];
+}
+
+/** @return array<string, mixed> самое дешёвое активное предложение позиции */
+function cheapest_offer(string $sku): array
+{
+    $offers = offers_for($sku);
+
+    if ($offers === []) {
+        throw new RuntimeException("у позиции {$sku} нет ни одного активного предложения со свободной единицей");
+    }
+
+    return $offers[0];
+}
+
+/**
+ * Гарантирует, что у самого дешёвого активного предложения позиции есть не
+ * меньше $minUnits свободных единиц ПРЯМО СЕЙЧАС, никогда не уменьшая
+ * остаток, если он и так больше.
+ *
+ * Нужен из-за задачи 2 второго этапа: цена и остаток переехали с товара на
+ * предложение продавца, и у самого дешёвого предложения на позицию — не
+ * бесконечный склад первого этапа, а скромные единицы стока (у KEY-CS2-PRIME
+ * — намеренно ровно одна, см. race-last-unit.php). Восемь сценариев первого
+ * этапа покупают по голому sku и делят этот остаток между собой в общем
+ * прогоне make race-all; без подкачки первый же сценарий, тронувший позицию,
+ * забирал бы единственную единицу и молча уводил все последующие на другое
+ * предложение — с другой ценой и другим supplier_id, ломая их же собственные
+ * проверки. Подкачка возвращает сценариям допущение первого этапа «единиц
+ * достаточно», не меняя ни одной их проверки.
+ *
+ * @return array<string, mixed> предложение (форма /api/offers) с учётом подкачки
+ */
+function ensure_offer_available(string $sku, int $minUnits): array
+{
+    $offer = cheapest_offer($sku);
+    $target = max((int) $offer['available'], $minUnits);
+
+    if ($target !== (int) $offer['available']) {
+        admin_post('/admin/offers/'.$offer['offer_id'].'/stock', ['units' => $target]);
+        $offer['available'] = $target;
+    }
+
+    return $offer;
+}
+
+/** Заказ по конкретному offer_id — прицельная покупка вместо резолвинга по sku. */
+function create_order_for_offer(int $offerId, ?string $promo = null, ?string $idempotencyKey = null): array
+{
+    $payload = ['offer_id' => $offerId];
+    if ($promo !== null) {
+        $payload['promo_code'] = $promo;
+    }
+
+    $response = request('POST', base_url().'/api/orders', $payload, [
+        'Idempotency-Key: '.($idempotencyKey ?? bin2hex(random_bytes(12))),
+    ]);
+
+    if (! is_array($response['body'])) {
+        throw new RuntimeException('не удалось создать заказ по offer_id: HTTP '.$response['status'].' '.(string) $response['error']);
+    }
+
+    return $response['body'];
+}
+
+/**
+ * Подключение к Postgres напрямую — только на чтение состояния, которое не
+ * отдаёт ни один эндпоинт (например, состояния конкретных строк
+ * stock_units). Мутации по-прежнему идут через dev/admin-ручки — прямая
+ * запись в базу используется ровно в одном сценарии (race-stream-catchup.php,
+ * имитация ретеншна журнала), и там это отдельно объяснено.
+ *
+ * Переменные окружения контейнера app те же, что использует сам Laravel
+ * (backend/.env приходит в контейнер через env_file), поэтому подключение
+ * получается без отдельной конфигурации. RACE_DB_* — override на случай,
+ * если скрипт когда-нибудь запустят не из этого контейнера.
+ */
+function db(): PDO
+{
+    static $pdo = null;
+
+    if ($pdo instanceof PDO) {
+        return $pdo;
+    }
+
+    $host = env_str('RACE_DB_HOST', env_str('DB_HOST', 'db'));
+    $port = env_str('RACE_DB_PORT', env_str('DB_PORT', '5432'));
+    $name = env_str('RACE_DB_NAME', env_str('DB_DATABASE', 'store'));
+    $user = env_str('RACE_DB_USER', env_str('DB_USERNAME', 'app'));
+    $pass = env_str('RACE_DB_PASSWORD', env_str('DB_PASSWORD', 'secret'));
+
+    $pdo = new PDO("pgsql:host={$host};port={$port};dbname={$name}", $user, $pass);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+    return $pdo;
+}
+
+/** @return list<array<string, mixed>> */
+function db_rows(string $sql, array $params = []): array
+{
+    $statement = db()->prepare($sql);
+    $statement->execute($params);
+
+    return $statement->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/** Первая колонка первой строки, null — пустой результат. */
+function db_value(string $sql, array $params = []): mixed
+{
+    $statement = db()->prepare($sql);
+    $statement->execute($params);
+    $value = $statement->fetchColumn();
+
+    return $value === false ? null : $value;
+}
+
+/** @return int число затронутых строк */
+function db_exec(string $sql, array $params = []): int
+{
+    $statement = db()->prepare($sql);
+    $statement->execute($params);
+
+    return $statement->rowCount();
+}
+
+/**
+ * Запускает artisan-команду отдельным процессом и сразу возвращает
+ * управление — не дожидаясь завершения.
+ *
+ * Нужен там, где сценарий обязан гарантированно, а не по случайному
+ * совпадению фаз секундного тика scheduler-контейнера, столкнуть в одном и
+ * том же интервале времени две транзакции — оплату (обычный HTTP-запрос) и
+ * reservations:release. Планировщик тикает и без этого вызова (он не
+ * останавливается на время сценария), поэтому это ДОПОЛНИТЕЛЬНЫЙ, а не
+ * единственный источник release — гонка от этого не становится менее
+ * настоящей: сталкиваются реальные транзакции над реальными строками.
+ *
+ * @return array{process: resource, stdout: resource, stderr: resource}
+ */
+function artisan_start(string $command): array
+{
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+
+    // Командный массив, а не строка: proc_open запускает бинарь напрямую,
+    // без шелла, и аргументам не нужно экранирование.
+    $process = proc_open(
+        [PHP_BINARY, 'artisan', ...preg_split('/\s+/', trim($command))],
+        $descriptors,
+        $pipes,
+        '/var/www',
+    );
+
+    if (! is_resource($process)) {
+        throw new RuntimeException('не удалось запустить artisan '.$command);
+    }
+
+    return ['process' => $process, 'stdout' => $pipes[1], 'stderr' => $pipes[2]];
+}
+
+/**
+ * @param array{process: resource, stdout: resource, stderr: resource} $handle
+ * @return array{exit: int, stdout: string, stderr: string}
+ */
+function artisan_finish(array $handle): array
+{
+    $stdout = trim((string) stream_get_contents($handle['stdout']));
+    $stderr = trim((string) stream_get_contents($handle['stderr']));
+    fclose($handle['stdout']);
+    fclose($handle['stderr']);
+
+    return ['exit' => proc_close($handle['process']), 'stdout' => $stdout, 'stderr' => $stderr];
+}
+
+/** Запускает artisan-команду и сразу дожидается её завершения. */
+function artisan_run(string $command): array
+{
+    return artisan_finish(artisan_start($command));
+}
+
+/** @return array{0: string, 1: int} [хост, порт] стримера для fsockopen */
+function stream_target(): array
+{
+    $parts = parse_url(env_str('RACE_STREAM_URL', 'http://streamer:8090'));
+
+    return [(string) ($parts['host'] ?? 'streamer'), (int) ($parts['port'] ?? 8090)];
+}
+
+/**
+ * SSE-клиент на голом сокете для race-stream-catchup.php.
+ *
+ * curl здесь не подходит: у него нет способа честно прочитать N событий из
+ * незакрытого потока и остановиться ровно там, где нужно сценарию, —
+ * CURLOPT_WRITEFUNCTION видит байты по мере поступления, но прервать запрос
+ * изнутри колбэка и продолжить с тем же телом нельзя. Голый fsockopen читает
+ * построчно и останавливается там, где скажет вызывающий код — это и даёт
+ * «прочитать пару событий, оборвать соединение» дословно.
+ */
+final class SseTestClient
+{
+    /** @var resource */
+    private $socket;
+
+    /** @param list<string> $topics */
+    public function __construct(array $topics, ?int $lastEventId = null, float $timeout = 5.0)
+    {
+        [$host, $port] = stream_target();
+
+        $socket = @fsockopen($host, $port, $errno, $errstr, $timeout);
+
+        if ($socket === false) {
+            throw new RuntimeException("не удалось подключиться к потоку {$host}:{$port} — {$errstr}");
+        }
+
+        $this->socket = $socket;
+
+        $query = 'topics='.rawurlencode(implode(',', $topics));
+        if ($lastEventId !== null) {
+            $query .= '&last_event_id='.$lastEventId;
+        }
+
+        fwrite($this->socket, "GET /api/stream?{$query} HTTP/1.1\r\n"
+            ."Host: streamer\r\n"
+            ."Accept: text/event-stream\r\n"
+            ."Connection: close\r\n\r\n");
+
+        $status = $this->readLine($timeout);
+
+        if ($status === null || ! str_contains($status, ' 200 ')) {
+            throw new RuntimeException('поток ответил не 200 OK: '.($status ?? '(соединение оборвалось)'));
+        }
+
+        // Дочитываем заголовки ответа до пустой строки-разделителя — кадры
+        // событий начинаются сразу за ней.
+        do {
+            $line = $this->readLine($timeout);
+        } while ($line !== null && $line !== '');
+    }
+
+    /**
+     * Один кадр SSE (id/event/data) целиком, либо null — сокет закрылся или
+     * истёк тайм-аут прежде, чем дошла пустая строка, завершающая кадр.
+     *
+     * Комментарии-пульсы (`: ping`, см. SseClient::comment) — не кадр:
+     * строка с двоеточием и следующая за ней пустая строка молча
+     * пропускаются, а ожидание кадра продолжается.
+     *
+     * @return array{id: int|null, event: string, data: string}|null
+     */
+    public function readEvent(float $timeout = 5.0): ?array
+    {
+        $id = null;
+        $event = 'message';
+        $dataLines = [];
+        $sawFrame = false;
+
+        while (true) {
+            $line = $this->readLine($timeout);
+
+            if ($line === null) {
+                return null;
+            }
+
+            if ($line === '') {
+                if ($sawFrame) {
+                    break;
+                }
+
+                continue; // вторая строка комментария-пульса
+            }
+
+            if ($line[0] === ':') {
+                continue; // комментарий SSE, не часть события
+            }
+
+            $sawFrame = true;
+
+            if (str_starts_with($line, 'id:')) {
+                $id = (int) trim(substr($line, 3));
+            } elseif (str_starts_with($line, 'event:')) {
+                $event = trim(substr($line, 6));
+            } elseif (str_starts_with($line, 'data:')) {
+                $dataLines[] = ltrim(substr($line, 5));
+            }
+        }
+
+        return ['id' => $id, 'event' => $event, 'data' => implode("\n", $dataLines)];
+    }
+
+    private function readLine(float $timeout): ?string
+    {
+        if (! is_resource($this->socket)) {
+            return null;
+        }
+
+        stream_set_timeout($this->socket, (int) ceil($timeout));
+        $line = fgets($this->socket, 8192);
+        $meta = stream_get_meta_data($this->socket);
+
+        if ($line === false || $meta['eof'] || $meta['timed_out']) {
+            return null;
+        }
+
+        return rtrim($line, "\r\n");
+    }
+
+    /** Обрывает соединение резко — то же самое, что обрыв связи у настоящего клиента. */
+    public function disconnect(): void
+    {
+        if (is_resource($this->socket)) {
+            fclose($this->socket);
+        }
+    }
 }
