@@ -27,7 +27,15 @@ return new class extends Migration
             $table->string('type');
 
             $table->jsonb('payload');
-            $table->timestampTz('created_at');
+
+            // DEFAULT на уровне базы (спека 3.1: "created_at timestamptz
+            // default now()"), а не только значение, которое подставляет
+            // EventBus::publish. Единственный сегодняшний писатель сам
+            // передаёт now() и без этого дефолта прожил бы, но запись в обход
+            // шины (например, фабрикой в тесте задач 4-13) обязана получить
+            // корректную дату, а не NOT NULL-ошибку или пустую колонку,
+            // которая молча ломает сортировку и PruneStreamEvents.
+            $table->timestampTz('created_at')->useCurrent();
 
             // Отдельный индекс на id не нужен — bigIncrements уже даёт
             // PRIMARY KEY, а чтение всегда идёт "id > cursor ORDER BY id".
