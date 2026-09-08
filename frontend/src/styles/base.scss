@@ -90,6 +90,21 @@ a {
   opacity: 1;
 }
 
+// Само сообщение не кликабельно (pointer-events: none у .notice — это
+// пассивный тост), а кнопка действия внутри обязана быть кликабельной:
+// потомок явно возвращает себе события указателя поверх запрета родителя.
+.notice__action {
+  display: block;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #fff;
+  font-weight: 700;
+  text-decoration: underline;
+  pointer-events: auto;
+}
+
 // В макете рамки фокуса нет, но клавиатурный фокус обязан быть виден.
 a:focus-visible,
 button:focus-visible,
