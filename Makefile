@@ -1,5 +1,10 @@
 # Всё поднимается одной командой: make up
 # Контейнеры запускаются под текущим пользователем, чтобы storage/ был доступен для записи.
+#
+# ⚠ После правки backend-кода: make restart. Долгоживущие процессы (воркер,
+# планировщик, SSE-стример) держат код в памяти и о правке файла не узнают —
+# в отличие от php-fpm, который читает его на каждый запрос. Ловушка первого
+# этапа: полчаса на «почему изменения не применяются».
 
 APP_UID := $(shell id -u)
 APP_GID := $(shell id -g)
@@ -13,13 +18,14 @@ RACE    := $(EXEC) php /scripts
 help:
 	@echo "make up        — собрать витрину, поднять стек, накатить миграции и сиды"
 	@echo "make down      — остановить стек"
+	@echo "make restart   — перечитать backend-код воркером, планировщиком и стримером"
 	@echo "make destroy   — остановить и снести данные"
 	@echo "make fresh     — пересоздать схему, засеять заново, обнулить склады"
 	@echo "make front     — собрать витрину (node в контейнере, на хосте ничего не нужно)"
 	@echo "make seed-catalog — засеять объёмный каталог и докупить склады поставщиков"
 	@echo "make race-all  — прогнать все состязательные сценарии"
 	@echo "make test      — модульные и функциональные тесты"
-	@echo "make logs      — логи воркера и приложения"
+	@echo "make logs      — логи приложения, воркера, планировщика и стримера"
 	@echo "make sh        — шелл внутри контейнера приложения"
 
 .PHONY: front
@@ -41,17 +47,24 @@ up: backend/.env front
 	@grep -q "^APP_KEY=base64:" backend/.env || $(EXEC) php artisan key:generate --force
 	$(EXEC) php artisan migrate --force
 	$(EXEC) php artisan db:seed --force
-	@echo "Схема готова, поднимаю воркер и планировщик..."
-	$(COMPOSE) up -d worker scheduler
+	@echo "Схема готова, поднимаю воркер, планировщик и стример..."
+	$(COMPOSE) up -d worker scheduler streamer
 	@echo ""
 	@echo "Витрина:  http://localhost:8085"
 	@echo "Админка:  http://localhost:8085/admin/orders?token=admin-secret-token"
+	@echo "Поток:    http://localhost:8085/api/stream?topics=catalog"
 	@echo "Склад A:  http://localhost:8086/inventory"
 	@echo "Склад B:  http://localhost:8087/inventory"
 
 .PHONY: down
 down:
 	$(COMPOSE) down
+
+# Код backend'а читается процессом один раз при старте, поэтому правку кода
+# видят только перезапущенные процессы (php-fpm перечитывает сам).
+.PHONY: restart
+restart:
+	$(COMPOSE) restart worker scheduler streamer
 
 .PHONY: destroy
 destroy:
@@ -74,7 +87,7 @@ test:
 
 .PHONY: logs
 logs:
-	$(COMPOSE) logs -f --tail=100 app worker scheduler
+	$(COMPOSE) logs -f --tail=100 app worker scheduler streamer
 
 .PHONY: sh
 sh:

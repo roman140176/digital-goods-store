@@ -58,6 +58,19 @@ services:
       app:
         condition: service_started
 
+  # SSE-стример живой витрины. Отдельный сервис, а не ещё один эндпоинт за
+  # php-fpm: соединение живёт часами, и fpm-воркер был бы занят всё это
+  # время — пять открытых вкладок съели бы пул целиком вместе с обычным API.
+  # Порт наружу — для отладки и состязательных сценариев в обход nginx.
+  streamer:
+    <<: *php
+    volumes:
+      - ./backend:/var/www
+    env_file: ./backend/.env
+    command: php artisan stream:serve --host=0.0.0.0 --port=8090
+    ports:
+      - "8088:8090"
+
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
