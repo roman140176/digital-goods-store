@@ -20,7 +20,7 @@ return new class extends Migration
             $table->string('supplier_id', 1);
 
             $table->integer('price_minor'); // копейки: денег во float не держим
-            $table->string('currency', 3)->default('RUB');
+            $table->char('currency', 3)->default('RUB');
             $table->string('status'); // active | hidden
             $table->timestamps();
 

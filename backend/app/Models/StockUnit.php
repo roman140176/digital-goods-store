@@ -17,8 +17,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class StockUnit extends Model
 {
-    protected $table = 'stock_units';
-
     protected $guarded = [];
 
     protected $casts = [
