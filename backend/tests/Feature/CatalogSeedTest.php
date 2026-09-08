@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Models\Offer;
 use App\Models\Product;
+use App\Models\Seller;
 use App\Models\StockUnit;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -61,9 +62,31 @@ final class CatalogSeedTest extends TestCase
 
     public function test_prices_are_integers_in_minor_units(): void
     {
+        // each() на пустой коллекции не выполнит колбэк ни разу и тест
+        // «пройдёт» без единой проверки — явный assertGreaterThan исключает
+        // такое молчаливое прохождение (см. RED-прогон: без сидов этот тест
+        // падал не FAILED, а risky, именно по этой причине).
+        $this->assertGreaterThan(0, Offer::query()->count());
+
         Offer::query()->get()->each(function (Offer $offer): void {
             $this->assertIsInt($offer->price_minor);
             $this->assertSame(0, $offer->price_minor % 100, 'цены сида — целые рубли');
         });
+    }
+
+    public function test_sellers_are_believable_and_offers_alternate_suppliers(): void
+    {
+        $this->assertSame(8, Seller::query()->count());
+
+        Seller::query()->get()->each(function (Seller $seller): void {
+            $this->assertGreaterThanOrEqual(4.2, (float) $seller->rating);
+            $this->assertLessThanOrEqual(5.0, (float) $seller->rating);
+        });
+
+        $this->assertSame(
+            ['a', 'b'],
+            Offer::query()->distinct()->orderBy('supplier_id')->pluck('supplier_id')->all(),
+            'supplier_id предложений должен чередоваться между обоими поставщиками',
+        );
     }
 }

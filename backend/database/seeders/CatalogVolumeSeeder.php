@@ -10,8 +10,15 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Объёмный каталог под задачу «мгновенный поиск» (спека, 3.4): список из
- * ~150 игр и сервисов × платформа × регион даёт правдоподобные уникальные
- * названия, по которым живой поиск действительно ищет что-то осмысленное.
+ * ~140 игр и сервисов даёт правдоподобные уникальные названия, по которым
+ * живой поиск действительно ищет что-то осмысленное.
+ *
+ * Игры разъезжаются по платформе И региону — «Cyberpunk 2077 — Steam (EU)»
+ * встречается в реальных магазинах. Сервисы/подписки — только по региону:
+ * платформы (Steam/Epic/PSN/Xbox/Nintendo/Origin) им неправдоподобны
+ * («Discord Nitro — Xbox» не продаётся), а тип позиции у них общий —
+ * subscription, как у SUB-DISCORD-1M/SUB-YT-3M/SUB-SPOTIFY-1M базового
+ * каталога.
  *
  * В DatabaseSeeder НЕ вызывается: пять тысяч предложений на каждый
  * RefreshDatabase сделали бы тесты нестерпимо медленными. Отдельная команда —
@@ -19,7 +26,10 @@ use Illuminate\Support\Facades\DB;
  *
  * Идемпотентен: повторный запуск сначала сносит СВОЮ ЖЕ предыдущую выборку
  * (по маркеру в sku) и отстраивает её заново, а не копит дубли — иначе второй
- * вызов `make seed-catalog` удвоил бы каталог.
+ * вызов `make seed-catalog` удвоил бы каталог. Целиком в одной транзакции:
+ * сбой на середине (нарушение ограничения, таймаут) должен вернуть базу к
+ * состоянию до пересева, а не оставить старое уже удалённым, а новое ещё не
+ * вставленным.
  */
 final class CatalogVolumeSeeder extends Seeder
 {
@@ -39,6 +49,9 @@ final class CatalogVolumeSeeder extends Seeder
         'Nintendo' => ['code' => 'NINTENDO', 'type' => 'giftcard'],
     ];
 
+    /** Тег вместо платформы у сервисов/подписок — см. buildCatalog(). */
+    private const SERVICE_TAG = 'SERVICE';
+
     /** @var array<string, string> код региона => подпись в названии */
     private const REGIONS = [
         'RU' => 'РФ и СНГ',
@@ -53,21 +66,6 @@ final class CatalogVolumeSeeder extends Seeder
 
     /** Надбавка 2, 3 и 4-го предложения над базовой ценой позиции. */
     private const PRICE_LADDER = [1.0, 1.04, 1.09, 1.15];
-
-    /**
-     * Десяток узнаваемых тайтлов для демонстрации гонки за последнюю единицу
-     * на объёме, а не только на базовом KEY-CS2-PRIME (спека, 3.4). У каждого
-     * — ровно один Steam-вариант с единственной единицей и более дорогой
-     * альтернативой; остальные платформы/регионы этих же игр — обычные
-     * позиции со случайным остатком.
-     *
-     * @var list<string>
-     */
-    private const HOT_TITLES = [
-        'Elden Ring', 'Baldur\'s Gate 3', 'Cyberpunk 2077', 'Hogwarts Legacy',
-        'Starfield', 'Diablo IV', 'Helldivers 2', 'Red Dead Redemption 2',
-        'God of War Ragnarok', 'Black Myth: Wukong', 'Alan Wake 2', 'Marvel\'s Spider-Man 2',
-    ];
 
     /** @var list<string> */
     private const NAMES = [
@@ -130,8 +128,14 @@ final class CatalogVolumeSeeder extends Seeder
         'Starfield', 'Hogwarts Legacy', 'Black Myth: Wukong', 'Final Fantasy VII Rebirth',
         'Persona 5 Royal', 'Monster Hunter Wilds', 'Kingdom Come: Deliverance II',
         'Metaphor: ReFantazio', 'Like a Dragon: Infinite Wealth',
+    ];
 
-        // Сервисы/подписки
+    /**
+     * Сервисы/подписки — без платформы, только регион (см. докблок класса).
+     *
+     * @var list<string>
+     */
+    private const SERVICES = [
         'Discord Nitro', 'Spotify Premium', 'YouTube Premium', 'Xbox Game Pass Ultimate',
         'PlayStation Plus', 'EA Play', 'Ubisoft+', 'Adobe Creative Cloud', 'Microsoft 365',
         'NordVPN',
@@ -141,38 +145,39 @@ final class CatalogVolumeSeeder extends Seeder
     {
         $startedAt = microtime(true);
 
-        $this->resetPreviousRun();
+        DB::transaction(function () use ($startedAt): void {
+            $this->resetPreviousRun();
 
-        [$products, $offerRows, $hotSkus] = $this->buildCatalog();
+            [$products, $offerRows] = $this->buildCatalog();
 
-        foreach (array_chunk($products, 500) as $chunk) {
-            DB::table('products')->upsert(
-                $chunk,
-                ['sku'],
-                ['name', 'type', 'price_minor', 'currency', 'image', 'updated_at'],
-            );
-        }
+            foreach (array_chunk($products, 500) as $chunk) {
+                DB::table('products')->upsert(
+                    $chunk,
+                    ['sku'],
+                    ['name', 'type', 'price_minor', 'currency', 'image', 'updated_at'],
+                );
+            }
 
-        foreach (array_chunk($offerRows, 500) as $chunk) {
-            DB::table('offers')->insert($chunk);
-        }
+            foreach (array_chunk($offerRows, 500) as $chunk) {
+                DB::table('offers')->insert($chunk);
+            }
 
-        $this->insertStockUnits($hotSkus);
+            $this->insertStockUnits();
 
-        $this->command?->info(sprintf(
-            'CatalogVolumeSeeder: %d позиций, %d предложений за %.1f с.',
-            count($products),
-            count($offerRows),
-            microtime(true) - $startedAt,
-        ));
+            $this->command?->info(sprintf(
+                'CatalogVolumeSeeder: %d позиций, %d предложений за %.1f с.',
+                count($products),
+                count($offerRows),
+                microtime(true) - $startedAt,
+            ));
+        });
     }
 
     /**
-     * Строит позиции и предложения одним проходом по именам, платформам и
-     * регионам — они всё равно нужны вместе (offer.product_sku ссылается на
-     * ещё не вставленный products.sku).
+     * Строит позиции и предложения одним проходом — они всё равно нужны
+     * вместе (offer.product_sku ссылается на ещё не вставленный products.sku).
      *
-     * @return array{0: list<array<string, mixed>>, 1: list<array<string, mixed>>, 2: list<string>}
+     * @return array{0: list<array<string, mixed>>, 1: list<array<string, mixed>>}
      */
     private function buildCatalog(): array
     {
@@ -186,14 +191,11 @@ final class CatalogVolumeSeeder extends Seeder
 
         $products = [];
         $offerRows = [];
-        $hotSkus = [];
-
         $now = now();
         $globalOfferIndex = 0;
 
         foreach (self::NAMES as $nameIndex => $title) {
             $slug = self::slug($title);
-            $isHotTitle = in_array($title, self::HOT_TITLES, true);
 
             foreach ($platformDefs as $platformIndex => $platform) {
                 for ($k = 0; $k < self::REGIONS_PER_PLATFORM; $k++) {
@@ -217,35 +219,73 @@ final class CatalogVolumeSeeder extends Seeder
                         'updated_at' => $now,
                     ];
 
-                    // Горячей становится ровно ОДНА позиция каждого выбранного
-                    // тайтла (первая платформа, первый регион окна) — иначе
-                    // одна и та же игра дала бы до 12 горячих строк вместо
-                    // десятка на весь каталог.
-                    $isHotPosition = $isHotTitle && $platformIndex === 0 && $k === 0;
-                    $offersCount = $isHotPosition ? 2 : random_int(1, 4);
-
-                    for ($i = 0; $i < $offersCount; $i++) {
-                        $offerRows[] = [
-                            'product_sku' => $sku,
-                            'seller_id' => $sellerIds[$globalOfferIndex % $sellerCount],
-                            'supplier_id' => $i % 2 === 0 ? 'a' : 'b',
-                            'price_minor' => ((int) round($baseRub * self::PRICE_LADDER[$i])) * 100,
-                            'currency' => 'RUB',
-                            'status' => 'active',
-                            'created_at' => $now,
-                            'updated_at' => $now,
-                        ];
-                        $globalOfferIndex++;
-                    }
-
-                    if ($isHotPosition) {
-                        $hotSkus[] = $sku;
-                    }
+                    $offers = $this->buildOffersForPosition($sku, $baseRub, $sellerIds, $sellerCount, $globalOfferIndex, $now);
+                    array_push($offerRows, ...$offers);
+                    $globalOfferIndex += count($offers);
                 }
             }
         }
 
-        return [$products, $offerRows, $hotSkus];
+        foreach (self::SERVICES as $title) {
+            $slug = self::slug($title);
+
+            foreach ($regionCodes as $regionCode) {
+                $sku = 'KEY-'.$slug.'-'.self::SERVICE_TAG."-{$regionCode}";
+                $baseRub = random_int(199, 4990);
+
+                $products[] = [
+                    'sku' => $sku,
+                    'name' => sprintf('%s (%s)', $title, self::REGIONS[$regionCode]),
+                    'type' => 'subscription',
+                    'price_minor' => $baseRub * 100,
+                    'currency' => 'RUB',
+                    'image' => null,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+
+                $offers = $this->buildOffersForPosition($sku, $baseRub, $sellerIds, $sellerCount, $globalOfferIndex, $now);
+                array_push($offerRows, ...$offers);
+                $globalOfferIndex += count($offers);
+            }
+        }
+
+        return [$products, $offerRows];
+    }
+
+    /**
+     * Предложения одной позиции: 1–4 штуки, надбавка по лестнице цен,
+     * продавец — раунд-робин по всем уже созданным предложениям каталога,
+     * поставщик чередуется a/b.
+     *
+     * @param  list<int>  $sellerIds
+     * @return list<array<string, mixed>>
+     */
+    private function buildOffersForPosition(
+        string $sku,
+        int $baseRub,
+        array $sellerIds,
+        int $sellerCount,
+        int $offerIndexStart,
+        \DateTimeInterface $now,
+    ): array {
+        $offersCount = random_int(1, 4);
+        $rows = [];
+
+        for ($i = 0; $i < $offersCount; $i++) {
+            $rows[] = [
+                'product_sku' => $sku,
+                'seller_id' => $sellerIds[($offerIndexStart + $i) % $sellerCount],
+                'supplier_id' => $i % 2 === 0 ? 'a' : 'b',
+                'price_minor' => ((int) round($baseRub * self::PRICE_LADDER[$i])) * 100,
+                'currency' => 'RUB',
+                'status' => 'active',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+
+        return $rows;
     }
 
     /**
@@ -260,53 +300,21 @@ final class CatalogVolumeSeeder extends Seeder
      * же число единиц вместо честного разброса 1..5 (проверено вручную на
      * этой базе). Через подзапрос random() — обычная колонка проекции,
      * которую Postgres обязан пересчитывать на каждую строку сканирования.
-     *
-     * @param  list<string>  $hotSkus
      */
-    private function insertStockUnits(array $hotSkus): void
+    private function insertStockUnits(): void
     {
-        if ($hotSkus !== []) {
-            $placeholders = implode(',', array_fill(0, count($hotSkus), '?'));
-
-            // Дешёвое предложение каждой горячей позиции — ровно одна единица.
-            DB::statement(
-                "INSERT INTO stock_units (offer_id, state, created_at, updated_at)
-                 SELECT id, 'available', now(), now() FROM (
-                     SELECT DISTINCT ON (product_sku) id
-                       FROM offers
-                      WHERE product_sku IN ({$placeholders})
-                      ORDER BY product_sku, price_minor ASC
-                 ) AS hot_offer",
-                $hotSkus,
-            );
-        }
-
-        $sql = "INSERT INTO stock_units (offer_id, state, created_at, updated_at)
-                 SELECT ou.id, 'available', now(), now()
-                   FROM (
-                       SELECT o.id, (1 + floor(random() * 5))::int AS units
-                         FROM offers o
-                         JOIN products p ON p.sku = o.product_sku
-                        WHERE p.sku ~ ?";
-        $bindings = [self::skuSuffixPattern()];
-
-        if ($hotSkus !== []) {
-            // Дешёвое предложение горячей позиции уже получило свою
-            // единственную единицу выше — здесь его пропускаем, чтобы не
-            // добавить вторую и не сломать демонстрацию гонки.
-            $placeholders = implode(',', array_fill(0, count($hotSkus), '?'));
-            $sql .= " AND o.id NOT IN (
-                SELECT DISTINCT ON (product_sku) id FROM offers
-                 WHERE product_sku IN ({$placeholders})
-                 ORDER BY product_sku, price_minor ASC
-            )";
-            $bindings = array_merge($bindings, $hotSkus);
-        }
-
-        $sql .= '        ) AS ou
-                   CROSS JOIN LATERAL generate_series(1, ou.units) AS gs(n)';
-
-        DB::statement($sql, $bindings);
+        DB::statement(
+            "INSERT INTO stock_units (offer_id, state, created_at, updated_at)
+             SELECT ou.id, 'available', now(), now()
+               FROM (
+                   SELECT o.id, (1 + floor(random() * 5))::int AS units
+                     FROM offers o
+                     JOIN products p ON p.sku = o.product_sku
+                    WHERE p.sku ~ ?
+               ) AS ou
+               CROSS JOIN LATERAL generate_series(1, ou.units) AS gs(n)",
+            [self::skuSuffixPattern()],
+        );
     }
 
     /**
@@ -337,18 +345,18 @@ final class CatalogVolumeSeeder extends Seeder
     }
 
     /**
-     * Regex-суффикс sku вида -STEAM-RU и т. п. — единственный надёжный
-     * маркер «это строка объёмного каталога»: слаг названия сам может
-     * содержать дефисы (Prince of Persia: The Lost Crown), поэтому считать
-     * сегменты через explode('-') нельзя, а префикс KEY- также носят позиции
-     * базового каталога (KEY-CS2-PRIME).
+     * Regex-суффикс sku вида -STEAM-RU, -SERVICE-RU и т. п. — единственный
+     * надёжный маркер «это строка объёмного каталога»: слаг названия сам
+     * может содержать дефисы (Prince of Persia: The Lost Crown), поэтому
+     * считать сегменты через explode('-') нельзя, а префикс KEY- также носят
+     * позиции базового каталога (KEY-CS2-PRIME).
      */
     private static function skuSuffixPattern(): string
     {
-        $platformCodes = array_column(self::PLATFORMS, 'code');
+        $tags = array_merge(array_column(self::PLATFORMS, 'code'), [self::SERVICE_TAG]);
         $regionCodes = array_keys(self::REGIONS);
 
-        return '-('.implode('|', $platformCodes).')-('.implode('|', $regionCodes).')$';
+        return '-('.implode('|', $tags).')-('.implode('|', $regionCodes).')$';
     }
 
     private static function slug(string $title): string
