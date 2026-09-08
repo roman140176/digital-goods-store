@@ -98,6 +98,83 @@ final class StockService
     }
 
     /**
+     * Снимает просроченные брони и возвращает единицы в продажу — вторая
+     * линия защиты рядом с ленивым подбором в reserve() (см. класс-докблок
+     * выше и ReleaseExpiredReservations): без отдельного тика планировщика
+     * товар «оживал» бы только для того, кто сам попытается его купить, а
+     * требование 3.2 ТЗ — «для всех» — обязано выполняться само по себе.
+     *
+     * FOR UPDATE OF u SKIP LOCKED — та же причина, что и в reserve(): не
+     * выстраиваться в очередь за строками, которые прямо сейчас держит
+     * другая транзакция (withoutOverlapping() защищает от параллельного
+     * тика САМОГО планировщика, но не от прямого вызова releaseExpired()
+     * из другого места, например из тестов).
+     *
+     * order_id пробрасывается из CTE (u.reserved_order_id), а не из
+     * обновлённой строки s: к моменту RETURNING поле reserved_order_id у s
+     * уже обнулено этим же UPDATE, и вернуть его оттуда физически нельзя —
+     * CTE materialize'ится ДО обновления и хранит значение таким, каким оно
+     * было на момент выборки.
+     *
+     * JOIN на orders с условием o.status = 'created' — единственное, что
+     * защищает единицы оплаченных заказов: они удерживаются до выдачи, и
+     * снятие с них брони означало бы оплаченный заказ без товара (2.3 ТЗ).
+     *
+     * @return list<array{unit_id: int, offer_id: int, order_id: string}>
+     */
+    public function releaseExpired(int $limit = 500): array
+    {
+        $rows = DB::select(<<<'SQL'
+            WITH expired AS (
+              SELECT u.id, u.reserved_order_id FROM stock_units u
+               JOIN orders o ON o.id = u.reserved_order_id
+               WHERE u.state = 'reserved' AND u.reserved_until <= now()
+                 AND o.status = 'created'
+               ORDER BY u.reserved_until
+               FOR UPDATE OF u SKIP LOCKED
+               LIMIT ?)
+            UPDATE stock_units s
+               SET state = 'available', reserved_order_id = NULL,
+                   reserved_until = NULL, updated_at = now()
+              FROM expired
+             WHERE s.id = expired.id
+            RETURNING s.id AS unit_id, s.offer_id, expired.reserved_order_id AS order_id
+        SQL, [$limit]);
+
+        return array_map(
+            static fn (object $row): array => [
+                'unit_id' => (int) $row->unit_id,
+                'offer_id' => (int) $row->offer_id,
+                'order_id' => (string) $row->order_id,
+            ],
+            $rows,
+        );
+    }
+
+    /**
+     * Просрочивает бронь заказа прямо сейчас — служебная ручка для сценариев
+     * приёмки и демонстрации (5.4 спеки): не ждать TTL целиком ни в тестах,
+     * ни на демонстрации. Само снятие брони этот метод не делает — только
+     * сдвигает дедлайн в прошлое, а освобождение остаётся единственной
+     * работой releaseExpired(), чтобы у инварианта была одна точка
+     * выполнения, а не две слегка разные.
+     *
+     * true, только если у заказа была активная бронь (единица в состоянии
+     * reserved): уже проданная или уже снятая бронь — не ошибка вызывающего
+     * кода, но и презентовать как «что-то просрочили» нечего.
+     */
+    public function expireNow(string $orderId): bool
+    {
+        $affected = DB::affectingStatement(
+            "UPDATE stock_units SET reserved_until = now() - interval '1 second', updated_at = now()
+              WHERE reserved_order_id = ? AND state = 'reserved'",
+            [$orderId],
+        );
+
+        return $affected > 0;
+    }
+
+    /**
      * Сколько единиц предложения можно захватить прямо сейчас: физически
      * свободные плюс чужая просроченная бронь — то же самое условие
      * доступности, что и в reserve() и в OfferState (см. 6.1 спеки).

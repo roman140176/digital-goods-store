@@ -6,6 +6,8 @@ namespace App\Http\Controllers;
 
 use App\Domain\Orders\CreateOrder;
 use App\Domain\Orders\OrderPresenter;
+use App\Domain\Stock\StockService;
+use App\Models\Order;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -45,5 +47,20 @@ final class DevController extends Controller
             OrderPresenter::toArray($result['order']),
             $result['created'] ? 201 : 200,
         );
+    }
+
+    /**
+     * Просрочивает бронь заказа прямо сейчас — не ждать TTL целиком ни в
+     * тестах, ни на демонстрации (5.4 спеки). Само снятие брони по-прежнему
+     * делает только ReleaseExpiredReservations на своём тике: эта ручка лишь
+     * сдвигает дедлайн единицы в прошлое, ничего больше не меняя.
+     */
+    public function expireReservation(Order $order, StockService $stock): JsonResponse
+    {
+        abort_if(app()->environment('production'), 404);
+
+        $stock->expireNow($order->id);
+
+        return response()->json(OrderPresenter::toArray($order->refresh()));
     }
 }

@@ -20,3 +20,6 @@ Route::post('/dev/pay/{order}', [PaymentSimulatorController::class, 'pay']);
 
 // Заказ с заранее известным id — только для сценария «вебхук раньше заказа».
 Route::post('/dev/orders', [DevController::class, 'createOrderWithId']);
+
+// Просрочить бронь сейчас — не ждать TTL ни в тестах, ни на демонстрации (5.4 спеки).
+Route::post('/dev/reservations/{order}/expire', [DevController::class, 'expireReservation']);
