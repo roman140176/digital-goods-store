@@ -24,7 +24,7 @@ final class OrderPresenter
         $order->loadMissing(['product', 'delivery', 'audit']);
 
         $unit = (new StockService)->unitFor($order->id);
-        $offer = $order->offer_id === null ? null : OfferState::forOffer((int) $order->offer_id);
+        $offer = OfferState::forOffer((int) $order->offer_id);
 
         return [
             'id' => $order->id,
@@ -34,7 +34,7 @@ final class OrderPresenter
             'status_label' => $order->status->label(),
             'is_final' => $order->status->isFinal(),
             'is_recoverable' => $order->status->isRecoverable(),
-            'offer_id' => $order->offer_id === null ? null : (int) $order->offer_id,
+            'offer_id' => (int) $order->offer_id,
             'amount_minor' => $order->amount_minor,
             'discount_minor' => $order->discount_minor,
             'total_minor' => $order->total_minor,
@@ -69,11 +69,13 @@ final class OrderPresenter
     }
 
     /**
-     * null, если у заказа сейчас нет активной брони с дедлайном: либо
-     * единицы вообще нет (старые заказы без offer_id, см. решения задачи
-     * 4a — колонка ещё nullable), либо она уже продана (reserved_until
-     * стирается продажей, см. 3.1 спеки, — отсчёту после оплаты полагается
-     * ни на что не влиять, 3.3 ТЗ).
+     * null, если у заказа сейчас нет активной брони с дедлайном: либо бронь
+     * истекла и была снята (reserved_order_id стирается вместе с ней —
+     * планировщик освобождает единицу для других покупателей, см. 6.3
+     * спеки), либо единица уже продана (reserved_until стирается продажей,
+     * см. 3.1 спеки, — отсчёту после оплаты полагается ни на что не влиять,
+     * 3.3 ТЗ). offer_id у заказа при этом всегда есть (NOT NULL с задачи
+     * 4b) — отсутствие брони не значит отсутствие предложения.
      *
      * @return array{unit_id: int, expires_at: string, seconds_left: int}|null
      */
