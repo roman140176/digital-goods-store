@@ -213,6 +213,14 @@ final class OrderAdminController extends Controller
         return DB::transaction(function () use ($order): bool {
             $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
 
+            // Два одновременных нажатия: пока первый вызов держал блокировку
+            // и уже снял refund_required, второй ждал на lockForUpdate. Раз
+            // под блокировкой видно, что работа уже сделана, — не задваиваем
+            // аудит и не публикуем события повторно ради того же самого.
+            if (! $locked->refund_required) {
+                return true;
+            }
+
             $sale = $this->stock->sellForOrder($locked->id, (int) $locked->offer_id);
 
             if ($sale === SaleResult::NoStock) {

@@ -8,6 +8,7 @@ use App\Domain\Orders\OrderStatus;
 use App\Jobs\DeliverOrder;
 use App\Models\Offer;
 use App\Models\Order;
+use App\Models\OrderAudit;
 use App\Models\StockUnit;
 use App\Models\StreamEvent;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -55,10 +56,39 @@ final class AdminOffersTest extends TestCase
             ->where('state', 'available')->count());
     }
 
+    /**
+     * «Оставить одну» обязано работать и от нуля: без единицы, добавленной в
+     * этой ветке, гонку за последнюю единицу заново не воспроизвести на
+     * предложении, которое уже полностью раскупили (available=0 — обычное
+     * состояние «горячего» товара после его собственной демонстрации).
+     */
+    public function test_leave_one_adds_a_unit_when_none_are_free(): void
+    {
+        StockUnit::query()->where('offer_id', $this->offer->id)->delete();
+
+        $this->post("/admin/offers/{$this->offer->id}/leave-one?token=".self::TOKEN)
+            ->assertRedirect();
+
+        $this->assertSame(1, StockUnit::query()->where('offer_id', $this->offer->id)
+            ->where('state', 'available')->count());
+    }
+
     public function test_stock_change_never_touches_reserved_or_sold_units(): void
     {
         StockUnit::query()->where('offer_id', $this->offer->id)->limit(1)
             ->update(['state' => 'sold', 'sold_at' => now()]);
+
+        // Настоящая, а не имитированная бронь: reserved_order_id — внешний
+        // ключ на реальный заказ, иначе регрессия, которая расширила бы
+        // DELETE на reserved, осталась бы незамеченной — имя теста обещает
+        // защиту ОБОИХ состояний, не только sold.
+        $reservingOrder = $this->createOrder(OrderStatus::Created);
+        StockUnit::query()->create([
+            'offer_id' => $this->offer->id,
+            'state' => 'reserved',
+            'reserved_order_id' => $reservingOrder->id,
+            'reserved_until' => now()->addMinutes(5),
+        ]);
 
         $this->post("/admin/offers/{$this->offer->id}/stock?token=".self::TOKEN,
             ['units' => 0])->assertRedirect();
@@ -66,6 +96,10 @@ final class AdminOffersTest extends TestCase
         // Проданную единицу удалять нельзя: на неё ссылается выданный заказ.
         $this->assertSame(1, StockUnit::query()->where('offer_id', $this->offer->id)
             ->where('state', 'sold')->count());
+        // Забронированную — тоже: она принадлежит живому покупателю с
+        // незавершённым оформлением, а не остатку, которым распоряжается админ.
+        $this->assertSame(1, StockUnit::query()->where('offer_id', $this->offer->id)
+            ->where('state', 'reserved')->count());
     }
 
     public function test_admin_endpoints_require_the_token(): void
@@ -89,6 +123,33 @@ final class AdminOffersTest extends TestCase
     }
 
     /**
+     * Toggle — переключатель, а не идемпотентное «скрыть»: второе нажатие
+     * (например, потому что администратор не заметил, что кнопка уже
+     * поменяла подпись) обязано вернуть предложение в active, а не упасть и
+     * не оставить лишний след в журнале сверх одного события на нажатие.
+     */
+    public function test_toggle_twice_switches_back_without_duplicate_events(): void
+    {
+        StreamEvent::query()->delete();
+
+        $this->post("/admin/offers/{$this->offer->id}/toggle?token=".self::TOKEN)
+            ->assertRedirect();
+        $this->assertSame('hidden', $this->offer->refresh()->status);
+
+        $this->post("/admin/offers/{$this->offer->id}/toggle?token=".self::TOKEN)
+            ->assertRedirect();
+        $this->assertSame('active', $this->offer->refresh()->status);
+
+        // Ровно два события на два нажатия — ни одно не потерялось и не
+        // задвоилось.
+        $events = StreamEvent::query()->orderBy('id')->get();
+        $this->assertCount(2, $events);
+        $this->assertSame('offer.gone', $events[0]->type);
+        $this->assertSame('offer.updated', $events[1]->type);
+        $this->assertSame('active', $events[1]->payload['status']);
+    }
+
+    /**
      * Решение задачи 13: единственный ручной путь вернуть в выдачу заказ,
      * который был оплачен, когда товара уже не было (out_of_stock +
      * refund_required, см. ApplyPaymentEvent::applyPaidWithoutStock). Склад
@@ -104,18 +165,7 @@ final class AdminOffersTest extends TestCase
         // не было (иначе applyPaidWithoutStock вообще не наступил бы).
         StockUnit::query()->where('offer_id', $this->offer->id)->delete();
 
-        $order = Order::query()->create([
-            'id' => 'ord_'.Str::lower((string) Str::ulid()),
-            'sku' => $this->offer->product_sku,
-            'offer_id' => $this->offer->id,
-            'amount_minor' => $this->offer->price_minor,
-            'discount_minor' => 0,
-            'total_minor' => $this->offer->price_minor,
-            'currency' => $this->offer->currency,
-            'status' => OrderStatus::OutOfStock,
-            'idempotency_key' => (string) Str::uuid(),
-            'refund_required' => true,
-        ]);
+        $order = $this->createOrder(OrderStatus::OutOfStock, refundRequired: true);
 
         // Склад пополнили — ровно то действие, которое админ выполнит на
         // демонстрации перед повторной выдачей.
@@ -146,18 +196,7 @@ final class AdminOffersTest extends TestCase
 
         StockUnit::query()->where('offer_id', $this->offer->id)->delete();
 
-        $order = Order::query()->create([
-            'id' => 'ord_'.Str::lower((string) Str::ulid()),
-            'sku' => $this->offer->product_sku,
-            'offer_id' => $this->offer->id,
-            'amount_minor' => $this->offer->price_minor,
-            'discount_minor' => 0,
-            'total_minor' => $this->offer->price_minor,
-            'currency' => $this->offer->currency,
-            'status' => OrderStatus::OutOfStock,
-            'idempotency_key' => (string) Str::uuid(),
-            'refund_required' => true,
-        ]);
+        $order = $this->createOrder(OrderStatus::OutOfStock, refundRequired: true);
 
         $this->postJson('/admin/orders/'.$order->id.'/redeliver?token='.self::TOKEN)
             ->assertStatus(409)
@@ -166,5 +205,53 @@ final class AdminOffersTest extends TestCase
         $this->assertTrue((bool) $order->refresh()->refund_required);
         $this->assertSame(OrderStatus::OutOfStock->value, $order->status->value);
         Queue::assertNothingPushed();
+    }
+
+    /**
+     * Второе нажатие «Выдать повторно» после того, как первое уже захватило
+     * единицу и сняло refund_required: реентерабельность sellForOrder не
+     * даёт этому пути 500 (единица уже sold — sellForOrder находит её через
+     * тот же reserved_order_id и отвечает SoldHeld, не пытаясь захватывать
+     * вторую), а внешний guard не даёт задвоиться записи аудита.
+     */
+    public function test_repeated_redelivery_after_reclaim_is_idempotent(): void
+    {
+        Queue::fake();
+
+        StockUnit::query()->where('offer_id', $this->offer->id)->delete();
+
+        $order = $this->createOrder(OrderStatus::OutOfStock, refundRequired: true);
+
+        $this->post("/admin/offers/{$this->offer->id}/stock?token=".self::TOKEN,
+            ['units' => 1])->assertRedirect();
+
+        $this->postJson('/admin/orders/'.$order->id.'/redeliver?token='.self::TOKEN)
+            ->assertOk()->assertJsonPath('redelivered', true);
+
+        // Второе нажатие: не 500, остаётся успешным, ничего не портит.
+        $this->postJson('/admin/orders/'.$order->id.'/redeliver?token='.self::TOKEN)
+            ->assertOk()->assertJsonPath('redelivered', true);
+
+        $this->assertFalse((bool) $order->refresh()->refund_required);
+        $this->assertSame(1, StockUnit::query()->where('offer_id', $this->offer->id)
+            ->where('state', 'sold')->where('reserved_order_id', $order->id)->count());
+        $this->assertSame(1, OrderAudit::query()->where('order_id', $order->id)
+            ->where('action', 'refund_reclaimed')->count());
+    }
+
+    private function createOrder(OrderStatus $status, bool $refundRequired = false): Order
+    {
+        return Order::query()->create([
+            'id' => 'ord_'.Str::lower((string) Str::ulid()),
+            'sku' => $this->offer->product_sku,
+            'offer_id' => $this->offer->id,
+            'amount_minor' => $this->offer->price_minor,
+            'discount_minor' => 0,
+            'total_minor' => $this->offer->price_minor,
+            'currency' => $this->offer->currency,
+            'status' => $status,
+            'idempotency_key' => (string) Str::uuid(),
+            'refund_required' => $refundRequired,
+        ]);
     }
 }
