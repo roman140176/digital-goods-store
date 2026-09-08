@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=1280" />
+    <title>Каталог — Магазин цифровых товаров</title>
+    <meta
+      name="description"
+      content="Поиск и фильтры по каталогу цифровых товаров: ключи, пополнения, подписки и подарочные карты."
+    />
+  </head>
+  <body>
+    <div class="canvas">
+      <header class="header">
+        <div class="header__inner">
+          <a class="catalog-button" href="./index.html">
+            <span data-icon="catalog"></span>
+            <span>Витрина</span>
+          </a>
+
+          <!-- Та же разметка поиска, что и на витрине (см. index.html), но
+               здесь она не уводит на другую страницу, а ищет мгновенно на
+               месте — поведение подключает catalog.ts, а не headerSearch.ts. -->
+          <div class="search">
+            <div class="search__field">
+              <input
+                class="search__input"
+                type="search"
+                placeholder="Игра, приложение или услуга..."
+                aria-label="Поиск по каталогу"
+                data-catalog-search-input
+              />
+            </div>
+            <button class="search__submit" type="button" aria-label="Найти" data-catalog-search-submit>
+              <span data-icon="search"></span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main class="container catalog-page" data-catalog-page>
+        <div class="catalog-head">
+          <h1 class="catalog-head__title">Каталог</h1>
+          <p class="catalog-head__summary" data-catalog-summary aria-live="polite">Загружаем каталог...</p>
+        </div>
+
+        <div class="catalog-filters" data-catalog-filters>
+          <label class="catalog-filter">
+            <span class="catalog-filter__label">Тип</span>
+            <select class="catalog-filter__control" data-filter="type">
+              <option value="">Все типы</option>
+              <option value="key">Ключи активации</option>
+              <option value="topup">Пополнения</option>
+              <option value="subscription">Подписки</option>
+              <option value="giftcard">Подарочные карты</option>
+            </select>
+          </label>
+
+          <label class="catalog-filter">
+            <span class="catalog-filter__label">Цена от, ₽</span>
+            <input
+              class="catalog-filter__control catalog-filter__control--number"
+              type="number"
+              min="0"
+              step="1"
+              inputmode="numeric"
+              placeholder="0"
+              data-filter="price_min"
+            />
+          </label>
+
+          <label class="catalog-filter">
+            <span class="catalog-filter__label">Цена до, ₽</span>
+            <input
+              class="catalog-filter__control catalog-filter__control--number"
+              type="number"
+              min="0"
+              step="1"
+              inputmode="numeric"
+              placeholder="Без ограничения"
+              data-filter="price_max"
+            />
+          </label>
+
+          <label class="catalog-filter catalog-filter--checkbox">
+            <input type="checkbox" data-filter="in_stock" />
+            <span>Только в наличии</span>
+          </label>
+
+          <label class="catalog-filter">
+            <span class="catalog-filter__label">Сортировка</span>
+            <select class="catalog-filter__control" data-filter="sort">
+              <option value="price_asc" selected>Сначала дешевле</option>
+              <option value="price_desc">Сначала дороже</option>
+              <option value="name">По названию</option>
+            </select>
+          </label>
+
+          <button class="catalog-filters__reset" type="button" data-catalog-reset>Сбросить</button>
+        </div>
+
+        <!-- is-loading вешается на этот узел на время запроса (см. catalog.ts,
+             setLoading): тонкая полоса сверху, а не подмена содержимого —
+             сетка ниже не очищается и не перерисовывается целиком (5.1 ТЗ). -->
+        <div class="catalog-results" data-catalog-results>
+          <div class="catalog-grid" data-catalog-grid></div>
+          <p class="catalog-empty" data-catalog-empty hidden>
+            Ничего не найдено. Попробуйте изменить запрос или фильтры.
+          </p>
+        </div>
+
+        <nav class="catalog-pagination" data-catalog-pagination aria-label="Страницы каталога" hidden>
+          <button class="catalog-pagination__button" type="button" data-page-prev>Назад</button>
+          <span class="catalog-pagination__status" data-page-status></span>
+          <button class="catalog-pagination__button" type="button" data-page-next>Вперёд</button>
+        </nav>
+      </main>
+    </div>
+
+    <script type="module" src="/src/catalog.ts"></script>
+  </body>
+</html>

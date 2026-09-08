@@ -89,10 +89,22 @@ export interface CatalogParams {
   readonly per_page?: number
 }
 
-/** GET /api/catalog — поиск, фильтры, сортировка и постраничная выдача (7 спеки). */
-export async function fetchCatalog(params: CatalogParams = {}): Promise<CatalogResponse> {
+/**
+ * GET /api/catalog — поиск, фильтры, сортировка и постраничная выдача (7 спеки).
+ *
+ * signal — опциональный: страница каталога (задача 12) отменяет предыдущий
+ * запрос при каждом новом вводе через AbortController, а витрине и странице
+ * заказа отмена не нужна вовсе (они запрашивают снапшот один раз или после
+ * resync, гонки последовательных вводов там нет).
+ */
+export async function fetchCatalog(params: CatalogParams = {}, signal?: AbortSignal): Promise<CatalogResponse> {
+  // signal добавляется условно: RequestInit.signal типизирован как
+  // AbortSignal | null, а exactOptionalPropertyTypes запрещает присваивать
+  // такому полю значение undefined явно (в отличие от простого отсутствия
+  // ключа) — тот же приём, что и у promo_code в createOrder ниже.
   const response = await fetch(endpoint(`/catalog${buildQuery({ ...params })}`), {
     headers: { Accept: 'application/json' },
+    ...(signal !== undefined ? { signal } : {}),
   })
 
   return parse<CatalogResponse>(response)

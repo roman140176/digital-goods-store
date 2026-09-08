@@ -9,6 +9,7 @@ import { mountCatalogMenu } from './ui/catalogMenu'
 import { mountCurrencySwitcher } from './ui/currencySwitcher'
 import { renderFooter } from './ui/footer'
 import { hydrateIcons } from './ui/hydrateIcons'
+import { mountHeaderSearch } from './ui/headerSearch'
 import { notify } from './ui/notice'
 import { applyOfferGone, applyOfferState, renderProductCards, renderTabs } from './ui/productCards'
 import { renderReviews } from './ui/reviews'
@@ -248,6 +249,10 @@ function init(): void {
   renderFooter(requireElement('[data-footer]'))
   mountCurrencySwitcher(requireElement('[data-currency-switcher]'))
   mountCatalogMenu(requireElement('[data-catalog-button]'), requireElement('[data-catalog-menu]'))
+
+  // Задача 12: поиск в шапке ведёт в каталог с ?q= — сам мгновенный поиск
+  // живёт только на catalog.html, здесь только переход.
+  mountHeaderSearch(requireElement<HTMLInputElement>('.search__input'), requireElement<HTMLButtonElement>('.search__submit'))
 
   // Этап 4: единственное место в макете, где покупатель может ввести код.
   mountSteamTopup(requireElement('[data-steam]'), {
