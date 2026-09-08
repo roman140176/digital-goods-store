@@ -4,48 +4,52 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Domain\Catalog\CatalogFilters;
+use App\Domain\Catalog\CatalogQuery;
+use App\Domain\Realtime\EventBus;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\DB;
 
 final class ProductController extends Controller
 {
     /**
      * Форма ответа первого этапа сохраняется ради совместимости с уже
-     * собранной витриной (см. решения задачи 4b): она читает price_minor
-     * у позиции, а колонки products.price_minor больше нет. price_minor
-     * здесь — цена лучшего (самого дешёвого) активного предложения позиции,
-     * посчитанная запросом, а не хранимое значение.
+     * собранной витриной (см. решения задачи 4b): она читает price_minor и
+     * currency у позиции верхнего уровня, а колонки products.price_minor
+     * больше нет. price_minor здесь — цена лучшего (самого дешёвого)
+     * активного предложения позиции.
      *
-     * JOIN LATERAL без LEFT: позиция без единого активного предложения не
-     * должна попасть в выдачу вовсе — показывать товар, который никто не
-     * продаёт, нельзя (ему нечего подставить в price_minor и currency).
+     * С задачи 8 сама выборка — общий CatalogQuery, тот же движок, что у
+     * /api/catalog (JOIN LATERAL на лучшее предложение, без LEFT — позиция
+     * без единого активного предложения не должна попасть в выдачу вовсе,
+     * см. ProductsEndpointTest::test_product_with_no_active_offers_is_absent_from_the_listing).
+     * CatalogFilters::unrestricted() — весь активный каталог без q/типа/
+     * цены/продавца, ограниченный только верхним пределом страницы (per_page
+     * = MAX_PER_PAGE): без него per_page был бы не ограничен вовсе, а
+     * убирать ограничение специально для этой ручки нет причины — у первого
+     * этапа было 12 позиций, у объёмного каталога (make seed-catalog)
+     * ограничение уже часть контракта задачи 8.
      *
-     * Сортировка внутри LATERAL — price_minor, затем id: при равенстве цен
-     * у двух предложений позиции результат обязан быть детерминированным
-     * (иначе от повторного запроса к тем же данным можно было получить два
-     * разных "лучших" предложения).
+     * Поверх старой формы добавлены best (полный объект лучшего предложения,
+     * тот же, что в /api/catalog) и stream_cursor, прочитанный до выборки —
+     * так же, как в CatalogController::index (4.5 спеки).
      */
-    public function index(): JsonResponse
+    public function index(CatalogQuery $catalogQuery): JsonResponse
     {
-        $products = DB::select(
-            "SELECT p.sku, p.name, p.type, p.image, b.price_minor, b.currency
-               FROM products p
-               JOIN LATERAL (
-                 SELECT o.price_minor, o.currency FROM offers o
-                  WHERE o.product_sku = p.sku AND o.status = 'active'
-                  ORDER BY o.price_minor, o.id LIMIT 1) b ON true
-              ORDER BY p.sku",
-        );
+        $streamCursor = (new EventBus)->cursor();
+
+        $result = $catalogQuery->search(CatalogFilters::unrestricted());
 
         return response()->json([
-            'products' => array_map(fn (object $row): array => [
-                'sku' => $row->sku,
-                'name' => $row->name,
-                'type' => $row->type,
-                'price_minor' => (int) $row->price_minor,
-                'currency' => $row->currency,
-                'image' => $row->image,
-            ], $products),
+            'products' => array_map(static fn (array $item): array => [
+                'sku' => $item['sku'],
+                'name' => $item['name'],
+                'type' => $item['type'],
+                'price_minor' => $item['best']['price_minor'],
+                'currency' => $item['best']['currency'],
+                'image' => $item['image'],
+                'best' => $item['best'],
+            ], $result['items']),
+            'stream_cursor' => $streamCursor,
         ]);
     }
 }
