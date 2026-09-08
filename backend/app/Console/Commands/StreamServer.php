@@ -8,6 +8,7 @@ use App\Domain\Realtime\EventBus;
 use App\Domain\Realtime\EventCursor;
 use App\Domain\Realtime\SseClient;
 use App\Domain\Realtime\StreamHub;
+use App\Domain\Realtime\StreamRequest;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use PgSql\Connection;
@@ -69,9 +70,6 @@ final class StreamServer extends Command
 
     /** Пауза перед повторной попыткой подписаться на канал уведомлений. */
     private const LISTENER_RETRY_INTERVAL = 2.0;
-
-    /** Сколько топиков разрешено одному подключению. */
-    private const MAX_TOPICS = 20;
 
     /** @var resource|null */
     private $server = null;
@@ -300,7 +298,7 @@ final class StreamServer extends Command
             return;
         }
 
-        $request = $this->parseRequest($head);
+        $request = StreamRequest::parse($head);
 
         if ($request === null) {
             $this->refuse($client, 400, 'Некорректный запрос.', 'bad_request');
@@ -308,20 +306,20 @@ final class StreamServer extends Command
             return;
         }
 
-        if ($request['method'] !== 'GET') {
+        if ($request->method !== 'GET') {
             $this->refuse($client, 405, 'Метод не поддерживается.', 'method_not_allowed');
 
             return;
         }
 
-        if ($request['path'] !== self::PATH) {
+        if ($request->path !== self::PATH) {
             $this->refuse($client, 404, 'Ресурс не найден.', 'not_found');
 
             return;
         }
 
-        $topics = $this->parseTopics($request);
-        $requested = $this->parseCursor($request);
+        $topics = $request->topics;
+        $requested = $request->cursor;
 
         $client->write(
             "HTTP/1.1 200 OK\r\n"
@@ -523,125 +521,6 @@ final class StreamServer extends Command
 
             return null;
         }
-    }
-
-    /**
-     * Разбор запроса: только строка запроса и заголовки, тело не читается.
-     *
-     * Свой разбор на несколько десятков строк вместо HTTP-сервера общего
-     * назначения: стример обслуживает ровно один GET-путь без тела,
-     * загрузок и маршрутизации.
-     *
-     * @return array{method: string, path: string, query: array<string, mixed>, headers: array<string, string>}|null
-     */
-    private function parseRequest(string $head): ?array
-    {
-        $lines = preg_split("/\r\n|\n/", $head) ?: [];
-        $requestLine = array_shift($lines);
-
-        if (! is_string($requestLine) || trim($requestLine) === '') {
-            return null;
-        }
-
-        $parts = preg_split('/\s+/', trim($requestLine)) ?: [];
-
-        if (count($parts) < 2) {
-            return null;
-        }
-
-        [$method, $target] = $parts;
-
-        $path = $target;
-        $query = [];
-        $mark = strpos($target, '?');
-
-        if ($mark !== false) {
-            $path = substr($target, 0, $mark);
-            parse_str(substr($target, $mark + 1), $query);
-        }
-
-        $headers = [];
-
-        foreach ($lines as $line) {
-            $colon = strpos($line, ':');
-
-            if ($colon === false) {
-                continue;
-            }
-
-            // Имена заголовков регистронезависимы, а браузеры и прокси
-            // пишут Last-Event-ID кто как: приводим к нижнему регистру,
-            // чтобы курсор не терялся из-за регистра буквы.
-            $headers[strtolower(trim(substr($line, 0, $colon)))] = trim(substr($line, $colon + 1));
-        }
-
-        return [
-            'method' => strtoupper($method),
-            'path' => rawurldecode($path),
-            'query' => $query,
-            'headers' => $headers,
-        ];
-    }
-
-    /**
-     * Топики подписки из ?topics=catalog,order:ord_x
-     *
-     * @param  array{query: array<string, mixed>, headers: array<string, string>}  $request
-     * @return list<string>
-     */
-    private function parseTopics(array $request): array
-    {
-        $raw = $request['query']['topics'] ?? '';
-        $topics = [];
-
-        foreach (explode(',', is_string($raw) ? $raw : '') as $topic) {
-            $topic = trim($topic);
-
-            // Топик уходит в SQL параметром, так что дело не в инъекции:
-            // список ограничивается по длине и алфавиту, чтобы подключение
-            // не могло заставить процесс держать килобайты мусора и раздувать
-            // IN-список общей выборки живого режима.
-            if ($topic === '' || preg_match('/^[a-z]+(:[A-Za-z0-9_-]{1,64})?$/', $topic) !== 1) {
-                continue;
-            }
-
-            $topics[$topic] = true;
-
-            if (count($topics) >= self::MAX_TOPICS) {
-                break;
-            }
-        }
-
-        // Пустая или мусорная подписка трактуется как «витрина»: главный
-        // потребитель канала — каталог, и молчащий поток вместо него сбивал
-        // бы с толку при отладке куда сильнее.
-        return $topics === [] ? ['catalog'] : array_keys($topics);
-    }
-
-    /**
-     * Курсор подключения. Заголовок важнее параметра: при реконнекте
-     * браузер присылает Last-Event-ID сам, и это значение свежее того, что
-     * когда-то попало в адрес страницы.
-     *
-     * @param  array{query: array<string, mixed>, headers: array<string, string>}  $request
-     */
-    private function parseCursor(array $request): int
-    {
-        $value = $request['headers']['last-event-id'] ?? $request['query']['last_event_id'] ?? null;
-
-        if (! is_string($value) && ! is_int($value)) {
-            return -1;
-        }
-
-        $value = trim((string) $value);
-
-        // Отрицательное значение — внутренний признак «курсор не указан»:
-        // ноль здесь занят и значит «отдай журнал с самого начала».
-        if ($value === '' || preg_match('/^\d+$/', $value) !== 1) {
-            return -1;
-        }
-
-        return (int) $value;
     }
 
     private function refuse(SseClient $client, int $status, string $message, string $reason): void
