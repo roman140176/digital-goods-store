@@ -12,6 +12,9 @@ Route::get('/products', [ProductController::class, 'index']);
 Route::post('/orders', [OrderController::class, 'store']);
 Route::get('/orders/{order}', [OrderController::class, 'show']);
 
+// Принять изменившуюся цену предложения до оплаты (1.3 ТЗ, 6.6 спеки).
+Route::post('/orders/{order}/reprice', [OrderController::class, 'reprice']);
+
 // Вебхук платёжной системы. Идемпотентен, терпит дубли и нарушенный порядок.
 Route::post('/webhook/payment', [WebhookController::class, 'handle']);
 

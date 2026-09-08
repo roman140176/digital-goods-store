@@ -6,6 +6,8 @@ namespace App\Http\Controllers;
 
 use App\Domain\Orders\CreateOrder;
 use App\Domain\Orders\OrderPresenter;
+use App\Domain\Orders\RepriceOrder;
+use App\Domain\Orders\RepriceRefused;
 use App\Domain\Promo\PromoUnavailable;
 use App\Domain\Stock\SoldOut;
 use App\Models\Order;
@@ -85,6 +87,34 @@ final class OrderController extends Controller
 
     public function show(Order $order): JsonResponse
     {
+        return response()->json(OrderPresenter::toArray($order));
+    }
+
+    /**
+     * Принятие изменившейся цены предложения до оплаты (требование 1.3 ТЗ,
+     * 6.6 спеки). Серверный гард в /api/dev/pay уже отказывает платить по
+     * устаревшей цене — эта ручка даёт покупателю способ согласиться на
+     * новую цену и продолжить, а не только упереться в отказ.
+     */
+    public function reprice(Request $request, Order $order, RepriceOrder $repriceOrder): JsonResponse
+    {
+        $data = $request->validate([
+            'expected_price_minor' => ['required', 'integer', 'min:1'],
+        ]);
+
+        try {
+            $order = $repriceOrder($order, (int) $data['expected_price_minor']);
+        } catch (RepriceRefused $e) {
+            return response()->json([
+                'message' => match ($e->reason) {
+                    'price_changed' => 'Цена предложения снова изменилась, подтвердите актуальную цену.',
+                    default => 'Заказ уже нельзя перерасценить.',
+                },
+                'reason' => $e->reason,
+                'current_price_minor' => $e->currentPriceMinor,
+            ], 409);
+        }
+
         return response()->json(OrderPresenter::toArray($order));
     }
 }

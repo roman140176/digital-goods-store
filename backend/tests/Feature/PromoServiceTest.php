@@ -25,18 +25,14 @@ final class PromoServiceTest extends TestCase
 
     public function test_percent_discount_is_rounded_down(): void
     {
-        $promo = Promocode::query()->findOrFail('WELCOME10');
-
-        $this->assertSame(3990, $this->promo->discountFor($promo, 39900));
-        $this->assertSame(2990, $this->promo->discountFor($promo, 29900));
+        $this->assertSame(3990, $this->promo->discountFor('WELCOME10', 39900, 'RUB'));
+        $this->assertSame(2990, $this->promo->discountFor('WELCOME10', 29900, 'RUB'));
     }
 
     public function test_fixed_discount_never_exceeds_price(): void
     {
-        $promo = Promocode::query()->findOrFail('GG500');
-
-        $this->assertSame(50000, $this->promo->discountFor($promo, 129000));
-        $this->assertSame(29900, $this->promo->discountFor($promo, 29900), 'скидка не может превышать цену');
+        $this->assertSame(50000, $this->promo->discountFor('GG500', 129000, 'RUB'));
+        $this->assertSame(29900, $this->promo->discountFor('GG500', 29900, 'RUB'), 'скидка не может превышать цену');
     }
 
     public function test_reserve_respects_limit(): void
