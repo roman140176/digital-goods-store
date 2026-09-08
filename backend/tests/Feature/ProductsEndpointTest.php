@@ -79,6 +79,18 @@ final class ProductsEndpointTest extends TestCase
      * одинаковых запроса к одним и тем же данным могли бы отдать то одного
      * продавца, то другого.
      *
+     * id первому предложению назначается явно и заведомо большим — это
+     * разрывает корреляцию между порядком вставки и порядком id. Без этого
+     * строка с меньшим id — она же первая физически вставленная (первая в
+     * heap по TID), и PostgreSQL при равенстве price_minor вернула бы именно
+     * её и без сортировки по id вовсе (упорядочивая дубликаты ключа индекса
+     * по TID, который совпадает с порядком вставки у двух подряд вставленных
+     * строк) — тест был бы зелёным что с `, o.id`, что без него и не
+     * доказывал бы ровным счётом ничего (ревью второго раунда, проверено
+     * эмпирически). Явный id не двигает sequence, поэтому вторая вставка
+     * получает id из неё как обычно — маленький, хотя физически вставлена
+     * второй.
+     *
      * currency — единственное поле в форме ответа первого этапа, которое
      * отличает два предложения с одинаковой ценой (offer_id и seller сюда
      * не попадают, см. решения задачи 4b), поэтому по нему и проверяется,
@@ -89,15 +101,15 @@ final class ProductsEndpointTest extends TestCase
         Product::query()->create(['sku' => 'TIE-TEST', 'name' => 'Позиция для проверки ничьей', 'type' => 'key']);
         $seller = Seller::query()->firstOrFail();
 
-        $lower = Offer::query()->create([
+        $later = Offer::query()->create([
+            'id' => 900000, 'product_sku' => 'TIE-TEST', 'seller_id' => $seller->id, 'supplier_id' => 'b',
+            'price_minor' => 100000, 'currency' => 'EUR', 'status' => 'active',
+        ]);
+        $earlier = Offer::query()->create([
             'product_sku' => 'TIE-TEST', 'seller_id' => $seller->id, 'supplier_id' => 'a',
             'price_minor' => 100000, 'currency' => 'RUB', 'status' => 'active',
         ]);
-        $higher = Offer::query()->create([
-            'product_sku' => 'TIE-TEST', 'seller_id' => $seller->id, 'supplier_id' => 'b',
-            'price_minor' => 100000, 'currency' => 'EUR', 'status' => 'active',
-        ]);
-        $this->assertLessThan($higher->id, $lower->id);
+        $this->assertLessThan($later->id, $earlier->id, 'физически вторая вставка обязана получить меньший id');
 
         $product = collect($this->getJson('/api/products')->assertOk()->json('products'))
             ->firstWhere('sku', 'TIE-TEST');
