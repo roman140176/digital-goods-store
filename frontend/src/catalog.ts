@@ -1,8 +1,9 @@
 import './styles/app.scss'
 
-import { ApiError, createOrder, fetchCatalog, type CatalogParams, type OrderTarget } from './api/client'
-import type { CatalogItem, CatalogResponse, Offer, Order, ProductType, StreamEnvelope } from './api/types'
+import { ApiError, fetchCatalog, type CatalogParams } from './api/client'
+import type { CatalogItem, CatalogResponse, Offer, ProductType, StreamEnvelope } from './api/types'
 import { escapeHtml, money } from './format'
+import { buyOffer } from './purchase'
 import { connectRealtime, shouldApply } from './realtime'
 import { hydrateIcons } from './ui/hydrateIcons'
 import { notify } from './ui/notice'
@@ -359,6 +360,19 @@ function applyResponse(response: CatalogResponse, params: CatalogParams): void {
   hasLoadedOnce = true
   totalPages = Math.max(1, Math.ceil(response.total / response.per_page))
 
+  if (currentPage > totalPages) {
+    // Номер страницы мог прийти из адреса раньше, чем стала известна верхняя
+    // граница (?page=50 при трёх реальных страницах — прямая ссылка с
+    // фильтрами, штатный путь 5.3, а не экзотика): поправляем номер и
+    // перезапрашиваем, а не показываем «Ничего не найдено» вперемешку со
+    // статусом «Страница 50 из 3» и кнопкой «Назад», листающей на манер
+    // одного шага за клик до настоящих данных.
+    currentPage = totalPages
+    void runSearch()
+
+    return
+  }
+
   syncGrid(response.items)
 
   const isEmpty = response.items.length === 0
@@ -425,6 +439,14 @@ async function runSearch(): Promise<void> {
       return // отменили сами (см. inFlight?.abort() выше) — новый поиск уже пошёл, здесь нечего делать
     }
 
+    // Настоящий сбой (не отмена и не гонка с более свежим запросом) — ключ
+    // обязан откатиться: он был присвоен ДО сетевого вызова (см. выше), и
+    // без сброса повтор с ТЕМИ ЖЕ фильтрами вычислит тот же key, увидит его
+    // равным lastRequestKey и молча ничего не отправит. Временный сбой
+    // (офлайн, таймаут, 500) обязан быть восстановим точным повтором клика
+    // «Найти», а не требовать смены хоть одного фильтра, чтобы выбраться.
+    lastRequestKey = undefined
+
     setLoading(false)
 
     if (!hasLoadedOnce) {
@@ -463,97 +485,6 @@ function goToPage(page: number): void {
   cancelPendingDebounce()
   currentPage = page
   void runSearch()
-}
-
-/**
- * Ключи идемпотентности на покупку — своя карта для этой страницы: тот же
- * приём, что и в main.ts (см. его докблок про idempotencyKeys), но копия, а
- * не импорт — main.ts ничего не экспортирует (это отдельная точка входа, а
- * не библиотека), и обе страницы никогда не открыты в одной вкладке
- * одновременно, так что раздельное состояние ничего не теряет.
- */
-const idempotencyKeys = new Map<string, string>()
-
-const idempotencyKeyFor = (key: string): string => {
-  const existing = idempotencyKeys.get(key)
-
-  if (existing !== undefined) {
-    return existing
-  }
-
-  const value =
-    typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `idem_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`
-  idempotencyKeys.set(key, value)
-
-  return value
-}
-
-async function attemptPurchase(target: OrderTarget, key: string): Promise<Order> {
-  const order = await createOrder(target, idempotencyKeyFor(key))
-  idempotencyKeys.delete(key)
-
-  return order
-}
-
-/** Покупка карточки каталога — offer_id, а не sku: карточка уже знает своё лучшее предложение (см. main.ts, buyOffer — тот же приём). */
-function buyOffer(item: CatalogItem, button: HTMLButtonElement): void {
-  const label = button.textContent
-  button.disabled = true
-  button.textContent = 'Оформляем...'
-
-  void attemptPurchase({ offerId: item.best.offer_id }, `offer:${item.best.offer_id}`)
-    .then((order) => {
-      window.location.href = `./order.html?id=${encodeURIComponent(order.id)}`
-    })
-    .catch((error: unknown) => {
-      if (error instanceof ApiError && error.reason === 'sold_out') {
-        applyOfferGone(item.best.offer_id)
-      } else {
-        button.disabled = false
-        button.textContent = label ?? 'Купить'
-      }
-
-      reportPurchaseError(error)
-    })
-}
-
-function buyAlternative(offer: Offer): void {
-  void attemptPurchase({ offerId: offer.offer_id }, `offer:${offer.offer_id}`)
-    .then((order) => {
-      window.location.href = `./order.html?id=${encodeURIComponent(order.id)}`
-    })
-    .catch((error: unknown) => {
-      if (error instanceof ApiError && error.reason === 'sold_out') {
-        applyOfferGone(offer.offer_id)
-      }
-
-      reportPurchaseError(error)
-    })
-}
-
-function reportPurchaseError(error: unknown): void {
-  if (error instanceof ApiError && error.reason === 'sold_out') {
-    const alternative = (error.details?.alternative ?? null) as Offer | null
-
-    if (alternative === null) {
-      notify('Товар только что раскупили.')
-
-      return
-    }
-
-    notify('Товар только что раскупили.', {
-      label: `Купить у ${alternative.seller.name} за ${money(alternative.price_minor, alternative.currency)}`,
-      onClick: () => {
-        buyAlternative(alternative)
-      },
-    })
-
-    return
-  }
-
-  notify(error instanceof ApiError ? error.message : 'Не удалось создать заказ. Проверьте, что бэкенд запущен.')
 }
 
 /** offer.updated/offer.gone из топика catalog — тот же обработчик, что и на витрине (main.ts, applyCatalogEvent): гард shouldApply, точечное применение к видимой карточке. */
