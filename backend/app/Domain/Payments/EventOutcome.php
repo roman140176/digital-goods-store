@@ -30,4 +30,11 @@ enum EventOutcome: string
 
     /** Заказ уже не в том состоянии, к которому событие применимо. */
     case Ignored = 'ignored';
+
+    /**
+     * Оплата принята, но единиц предложения не осталось вовсе (см. 6.4
+     * спеки): заказ переведён в out_of_stock и помечен refund_required,
+     * деньги не теряются.
+     */
+    case NeedsRefund = 'needs_refund';
 }

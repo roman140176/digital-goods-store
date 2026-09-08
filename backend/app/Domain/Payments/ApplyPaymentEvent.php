@@ -7,6 +7,9 @@ namespace App\Domain\Payments;
 use App\Domain\Delivery\DeliveryState;
 use App\Domain\Orders\OrderStatus;
 use App\Domain\Promo\PromoService;
+use App\Domain\Realtime\EventBus;
+use App\Domain\Stock\SaleResult;
+use App\Domain\Stock\StockService;
 use App\Jobs\DeliverOrder;
 use App\Models\Delivery;
 use App\Models\Order;
@@ -37,7 +40,11 @@ final class ApplyPaymentEvent
      */
     private const STUCK_AFTER_SECONDS = 5;
 
-    public function __construct(private readonly PromoService $promo) {}
+    public function __construct(
+        private readonly PromoService $promo,
+        private readonly StockService $stock,
+        private readonly EventBus $bus,
+    ) {}
 
     public function __invoke(WebhookPayload $payload): EventOutcome
     {
@@ -190,14 +197,27 @@ final class ApplyPaymentEvent
             return $this->finish($event, EventOutcome::CurrencyMismatch);
         }
 
-        // Оплата уже учтена: заказ в выдаче или ждёт восстановления.
-        // Из payment_failed выйти можно: платёж мог подтвердиться позже,
-        // и терять его нельзя.
-        if (! in_array($order->status, [OrderStatus::Created, OrderStatus::PaymentFailed], true)) {
+        // Оплата уже учтена: заказ в выдаче или ждёт восстановления. Из
+        // payment_failed и reservation_expired выйти можно: платёж мог
+        // подтвердиться позже, и терять его нельзя — покупатель не отвечает
+        // за то, что бронь формально истекла раньше, чем дошла оплата
+        // (см. 6.4 спеки).
+        if (! $order->status->acceptsPayment()) {
             return $this->finish($event, EventOutcome::Ignored);
         }
 
         $from = $order->status;
+
+        // Продажа единицы — часть применения оплаты, а не шаг после него:
+        // единица, которую заказ ещё держит, продаётся вне зависимости от
+        // истёкшего дедлайна; если бронь успели отдать другому — берётся
+        // другая единица того же предложения; если единиц не осталось
+        // вовсе, заказ не должен уйти в paid без товара (требование 2.3 ТЗ).
+        $sale = $this->stock->sellForOrder($order->id, (int) $order->offer_id);
+
+        if ($sale === SaleResult::NoStock) {
+            return $this->applyPaidWithoutStock($event, $order, $from);
+        }
 
         $order->update([
             'status' => OrderStatus::Paid,
@@ -213,14 +233,57 @@ final class ApplyPaymentEvent
             'webhook',
             $from->value,
             OrderStatus::Paid->value,
-            ['event_id' => $event->event_id, 'delivery_id' => $deliveryId],
+            ['event_id' => $event->event_id, 'delivery_id' => $deliveryId, 'sale' => $sale->name],
         );
 
         // Задача помечена afterCommit: воркер не должен увидеть заказ раньше,
         // чем транзакция зафиксируется.
         DeliverOrder::dispatch($deliveryId);
 
+        // Заказ и его предложение публикуются в конце: остаток предложения
+        // мог измениться перезахватом (SoldReclaimed), а страница заказа
+        // обязана узнать о поздней оплате даже после того, как опрос по ней
+        // остановился (ReservationExpired финален для опроса, но не для SSE
+        // топика заказа, см. 3.3 спеки). Лишняя публикация при SoldHeld
+        // безвредна — payload несёт полное состояние (см. 4.1 спеки).
+        $this->bus->publishOrder($order->id);
+        $this->bus->publishOffer((int) $order->offer_id);
+
         return $this->finish($event, EventOutcome::Applied);
+    }
+
+    /**
+     * Деньги пришли, а продать нечего: заказ не может остаться без следа
+     * оплаты, поэтому он помечается к возврату вместо тихой потери платежа
+     * (см. 6.4 спеки, требование 2.3 ТЗ). Задача выдачи намеренно не
+     * создаётся — выдавать нечего, реконсилятор подберёт заказ после
+     * пополнения склада тем же ApplyPaymentEvent::applyUnprocessed путём,
+     * каким он же и добивает застрявшие события.
+     */
+    private function applyPaidWithoutStock(PaymentEvent $event, Order $order, OrderStatus $from): EventOutcome
+    {
+        $order->update([
+            'status' => OrderStatus::OutOfStock,
+            'refund_required' => true,
+            'paid_event_id' => $event->event_id,
+            'last_event_at' => $event->provider_created_at ?? now(),
+        ]);
+
+        OrderAudit::record(
+            $order->id,
+            'payment_needs_refund',
+            'webhook',
+            $from->value,
+            OrderStatus::OutOfStock->value,
+            ['event_id' => $event->event_id, 'reason' => 'reservation_lost'],
+        );
+
+        // Только топик заказа: единиц предложения захват не тронул (reserve()
+        // внутри sellForOrder ничего не нашёл), поэтому остаток витрины не
+        // изменился и publishOffer здесь ничего не сообщил бы нового.
+        $this->bus->publishOrder($order->id);
+
+        return $this->finish($event, EventOutcome::NeedsRefund);
     }
 
     private function applyFailed(PaymentEvent $event, Order $order): EventOutcome

@@ -8,7 +8,6 @@ use App\Domain\Realtime\OfferState;
 use App\Models\Offer;
 use App\Models\StockUnit;
 use Illuminate\Support\Facades\DB;
-use LogicException;
 
 /**
  * Захват, поиск и продажа единиц склада под конкретное предложение.
@@ -74,18 +73,59 @@ final class StockService
     }
 
     /**
-     * Продаёт единицу, удержанную заказом на момент оплаты.
+     * Продаёт единицу под оплаченный заказ — три ветки 6.4 спеки, ни одна
+     * не должна оставить оплаченный заказ без товара (2.3 ТЗ).
      *
-     * Объявлен как часть контракта задачи 4a (см. предполётные решения:
-     * CreateOrder и OrderController уже опираются на существование этого
-     * метода через тип SaleResult), но сама продажа — часть жизненного цикла
-     * оплаты (6.4 спеки), которая реализуется в задаче 6. Пустая заглушка,
-     * которая молча возвращала бы, скажем, NoStock, замаскировала бы это
-     * отсутствие поведения под настоящий результат — поэтому явный отказ.
+     * 1) Единица физически всё ещё за заказом (state=reserved) — продаём её
+     *    независимо от того, истекла ли бронь формально: кто первый в базе,
+     *    тот и прав, покупатель не отвечает за расписание планировщика.
+     * 2) Такой единицы нет, но заказ уже продал другую раньше (реентерабельный
+     *    повторный вызов) — отвечаем тем же исходом, а не лезем в перезахват.
+     * 3) Единицы за заказом нет вовсе — пробуем захватить другую единицу
+     *    того же предложения по уже уплаченной цене (цену задним числом не
+     *    меняем: reserve() не трогает offers.price_minor).
      */
     public function sellForOrder(string $orderId, int $offerId): SaleResult
     {
-        throw new LogicException('StockService::sellForOrder реализуется в задаче 6.');
+        $sold = DB::affectingStatement(
+            "UPDATE stock_units
+                SET state = 'sold', sold_at = now(), reserved_until = NULL, updated_at = now()
+              WHERE reserved_order_id = ? AND state = 'reserved'",
+            [$orderId],
+        );
+
+        if ($sold > 0) {
+            return SaleResult::SoldHeld;
+        }
+
+        // Реентерабельность: заказ уже продал единицу раньше. Без этой
+        // проверки повторное применение оплаты проваливалось бы в перезахват
+        // ниже, reserve() выставил бы reserved_order_id этого же заказа на
+        // ВТОРУЮ единицу — и получил бы 500 на частичном UNIQUE
+        // stock_units_one_order_per_unit вместо тихой идемпотентности.
+        // reserved_order_id проданной единицы не стирается (см. 3.2 спеки),
+        // поэтому проверка сводится к одному запросу.
+        if (StockUnit::query()->where('reserved_order_id', $orderId)
+            ->where('state', 'sold')->exists()) {
+            return SaleResult::SoldHeld;
+        }
+
+        // Бронь успели снять и отдать другому: пробуем взять другую единицу
+        // того же предложения. TTL здесь короткий и не имеет значения для
+        // покупателя — единица тут же продаётся следующим оператором, а не
+        // остаётся в брони.
+        if ($this->reserve($offerId, $orderId, 60) === null) {
+            return SaleResult::NoStock;
+        }
+
+        DB::affectingStatement(
+            "UPDATE stock_units
+                SET state = 'sold', sold_at = now(), reserved_until = NULL, updated_at = now()
+              WHERE reserved_order_id = ? AND state = 'reserved'",
+            [$orderId],
+        );
+
+        return SaleResult::SoldReclaimed;
     }
 
     /**

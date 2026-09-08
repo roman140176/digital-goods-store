@@ -6,6 +6,7 @@ namespace App\Domain\Delivery;
 
 use App\Domain\Orders\OrderStatus;
 use App\Models\Delivery;
+use App\Models\Offer;
 use App\Models\Order;
 use App\Models\OrderAudit;
 use Carbon\CarbonImmutable;
@@ -86,7 +87,7 @@ final class IssueOrderCode
         $allOutOfStock = true;
         $failures = [];
 
-        foreach ($this->suppliers->ordered() as $supplier) {
+        foreach ($this->suppliersFor($order) as $supplier) {
             $outcome = $this->askWithRetries($supplier, $delivery, $order);
 
             if ($outcome->isOk()) {
@@ -116,6 +117,42 @@ final class IssueOrderCode
         }
 
         $this->giveUp($delivery, $order, $allOutOfStock, implode('; ', $failures));
+    }
+
+    /**
+     * Обход поставщиков начинается с того, что закреплён за предложением
+     * заказа (offers.supplier_id, см. 6.5 спеки), а не с первого в конфиге:
+     * поле перестаёт быть справочным и определяет, кто выдаёт код первым.
+     * Остальные поставщики остаются резервными в прежнем порядке конфига —
+     * правило «к резервному только по однозначному out_of_stock» не
+     * меняется (см. askWithRetries/isAmbiguous ниже), меняется только то,
+     * кто здесь основной.
+     *
+     * Предложение могло быть удалено между оплатой и выдачей (в проекте
+     * такого пути нет, но метод от этого не должен падать) — тогда
+     * supplier_id не найден, и обход идёт в исходном порядке конфига.
+     *
+     * @return list<Supplier>
+     */
+    private function suppliersFor(Order $order): array
+    {
+        $primaryId = Offer::query()->whereKey($order->offer_id)->value('supplier_id');
+        $ordered = $this->suppliers->ordered();
+
+        if ($primaryId === null) {
+            return $ordered;
+        }
+
+        $primary = array_values(array_filter(
+            $ordered,
+            static fn (Supplier $supplier): bool => $supplier->id() === $primaryId,
+        ));
+        $rest = array_values(array_filter(
+            $ordered,
+            static fn (Supplier $supplier): bool => $supplier->id() !== $primaryId,
+        ));
+
+        return [...$primary, ...$rest];
     }
 
     /**
