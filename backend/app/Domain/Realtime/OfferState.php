@@ -56,10 +56,56 @@ final readonly class OfferState
             [$offerId],
         );
 
-        if ($row === null) {
-            return null;
+        return $row === null ? null : self::fromRow($row);
+    }
+
+    /**
+     * Та же выборка, что и forOffer(), но одним запросом на список id —
+     * нужна там, где предложений несколько (например,
+     * CatalogController::offers()): цикл по forOffer() дал бы по одному
+     * запросу на предложение (N+1), а здесь их ровно два независимо от
+     * длины списка (этот плюс запрос на сами id, если он вообще нужен
+     * вызывающему коду).
+     *
+     * `o.id = ANY(?::bigint[])` вместо стольких же `?`, сколько элементов в
+     * списке: список предложений одной позиции короткий и неизвестной длины
+     * заранее, а ANY с одним биндингом-массивом не требует пересобирать
+     * текст SQL под конкретное количество id.
+     *
+     * Порядок результата — снова (price_minor, id): ANY() сам по себе
+     * порядок не гарантирует, а карточке предложений позиции важно
+     * показывать их от дешёвого к дорогому, как и everywhere else в
+     * каталоге.
+     *
+     * @param  list<int>  $offerIds
+     * @return list<self>
+     */
+    public static function forOffers(array $offerIds): array
+    {
+        if ($offerIds === []) {
+            return [];
         }
 
+        $rows = DB::select(
+            "SELECT o.id, o.product_sku, p.name, o.price_minor, o.currency, o.status,
+                    s.id AS seller_id, s.name AS seller_name,
+                    (SELECT count(*) FROM stock_units u
+                      WHERE u.offer_id = o.id
+                        AND (u.state = 'available'
+                             OR (u.state = 'reserved' AND u.reserved_until <= now()))) AS available
+               FROM offers o
+               JOIN products p ON p.sku = o.product_sku
+               JOIN sellers  s ON s.id = o.seller_id
+              WHERE o.id = ANY(?::bigint[])
+              ORDER BY o.price_minor, o.id",
+            ['{'.implode(',', $offerIds).'}'],
+        );
+
+        return array_map(self::fromRow(...), $rows);
+    }
+
+    private static function fromRow(object $row): self
+    {
         return new self(
             offerId: (int) $row->id,
             sku: $row->product_sku,

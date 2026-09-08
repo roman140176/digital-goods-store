@@ -40,6 +40,14 @@ final readonly class CatalogFilters
     /** @var list<string> */
     public const SORTS = ['price_asc', 'price_desc', 'name'];
 
+    /**
+     * Сортировка первого этапа — по sku, а не по цене. Не входит в SORTS:
+     * это деталь контракта конкретно ProductController (см. unrestricted()
+     * и его вызов), а не документированный режим публичного /api/catalog,
+     * который эту строку никогда не должен принять через ?sort=.
+     */
+    public const SORT_SKU = 'sku';
+
     private function __construct(
         public ?string $q,
         public ?string $type,
@@ -68,13 +76,19 @@ final readonly class CatalogFilters
     }
 
     /**
-     * Весь активный каталог, без q/типа/цены/продавца, дешёвые сверху —
-     * читает ProductController ради формы ответа первого этапа (см.
-     * решения задачи 8): раньше пагинации не было вовсе, а без верхнего
-     * предела per_page отдавать тоже нельзя, поэтому предел — тот же
-     * MAX_PER_PAGE, что и у публичного каталога.
+     * Весь активный каталог, без q/типа/цены/продавца — читает
+     * ProductController ради формы ответа первого этапа (см. решения задачи
+     * 8): раньше пагинации не было вовсе, а без верхнего предела per_page
+     * отдавать тоже нельзя, поэтому предел — тот же MAX_PER_PAGE, что и у
+     * публичного каталога.
+     *
+     * $sort — обязательный параметр без дефолта намеренно: у вызывающего
+     * кода ровно один потребитель (ProductController), и он обязан явно
+     * назвать SORT_SKU в точке вызова, а не унаследовать какой-то дефолт
+     * молча — так решение «эта ручка сортирует иначe, чем /api/catalog»
+     * видно там, где его действительно принимают.
      */
-    public static function unrestricted(): self
+    public static function unrestricted(string $sort): self
     {
         return new self(
             q: null,
@@ -83,7 +97,7 @@ final readonly class CatalogFilters
             priceMax: null,
             inStock: false,
             sellerId: null,
-            sort: 'price_asc',
+            sort: $sort,
             page: 1,
             perPage: self::MAX_PER_PAGE,
         );

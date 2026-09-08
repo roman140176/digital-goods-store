@@ -57,6 +57,9 @@ final class CatalogSearchTest extends TestCase
         $cheap = $this->getJson('/api/catalog?price_max=40000&per_page=50')
             ->assertOk()->json('items');
 
+        // Без этой проверки пустая выборка сделала бы foreach ниже пустым
+        // no-op и тест зелёным независимо от того, работает фильтр или нет.
+        $this->assertNotEmpty($cheap);
         foreach ($cheap as $item) {
             $this->assertLessThanOrEqual(40000, $item['best']['price_minor']);
         }
@@ -84,6 +87,12 @@ final class CatalogSearchTest extends TestCase
         $page1 = $prices($first->json('items'));
         $page2 = $prices($second->json('items'));
 
+        // Без этих двух проверок пустые страницы (например, если фильтр
+        // страницы сломался и всегда отдаёт []) прошли бы сравнения ниже
+        // молча: assertSame([], []) истинно, а end([]) === false <= любое
+        // число тоже истинно.
+        $this->assertCount(5, $page1);
+        $this->assertCount(5, $page2);
         $this->assertSame($page1, array_values(collect($page1)->sort()->all()));
         $this->assertLessThanOrEqual($page2[0] ?? PHP_INT_MAX, end($page1));
         $this->assertSame(12, $first->json('total'));
@@ -98,5 +107,21 @@ final class CatalogSearchTest extends TestCase
         // цене лучшего предложения.
         $this->assertArrayHasKey('price_minor', $product);
         $this->assertSame($product['best']['price_minor'], $product['price_minor']);
+    }
+
+    /**
+     * /api/products — единственная ручка каталога, отсортированная по sku,
+     * а не по цене: первый этап резал её ответ на ряды карточек по смещению
+     * (frontend/src/main.ts, rowOf()), и порядок там часть уже сданного
+     * контракта, который эта задача не переписывает. /api/catalog по
+     * умолчанию сортирует по цене — так специфицировано отдельно (5.1
+     * спеки) — но это другая ручка с другим контрактом.
+     */
+    public function test_products_endpoint_is_sorted_alphabetically_by_sku(): void
+    {
+        $skus = collect($this->getJson('/api/products')->assertOk()->json('products'))
+            ->pluck('sku')->all();
+
+        $this->assertSame(collect($skus)->sort()->values()->all(), $skus);
     }
 }

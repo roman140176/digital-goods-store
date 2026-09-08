@@ -29,6 +29,15 @@ final class ProductController extends Controller
      * этапа было 12 позиций, у объёмного каталога (make seed-catalog)
      * ограничение уже часть контракта задачи 8.
      *
+     * Сортировка — SORT_SKU (алфавит по sku), а НЕ дефолт price_asc, каким
+     * сортирует /api/catalog: первый этап отдавал по sku, и главная
+     * витрина режет этот ответ на ряды карточек срезами по смещению
+     * (frontend/src/main.ts, rowOf()) — порядок здесь часть уже сданного
+     * контракта первого этапа, который эта задача не переписывает, а не
+     * просто «какой-то» порядок. У /api/catalog сортировка по цене
+     * специфицирована отдельно (5.1 спеки) — это другая ручка с другим
+     * контрактом, совпадать они не обязаны.
+     *
      * Поверх старой формы добавлены best (полный объект лучшего предложения,
      * тот же, что в /api/catalog) и stream_cursor, прочитанный до выборки —
      * так же, как в CatalogController::index (4.5 спеки).
@@ -37,7 +46,7 @@ final class ProductController extends Controller
     {
         $streamCursor = (new EventBus)->cursor();
 
-        $result = $catalogQuery->search(CatalogFilters::unrestricted());
+        $result = $catalogQuery->search(CatalogFilters::unrestricted(CatalogFilters::SORT_SKU));
 
         return response()->json([
             'products' => array_map(static fn (array $item): array => [

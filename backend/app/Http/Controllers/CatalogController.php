@@ -42,10 +42,11 @@ final class CatalogController extends Controller
      * остатками: нужно для альтернативы в 409 sold_out и для списка
      * продавцов на карточке товара (5.1 спеки).
      *
-     * Предложений у одной позиции — единицы (2-5 по сиду), поэтому
-     * по-offer-но через OfferState (как уже делает StockService::alternativeFor
-     * для одного предложения) — не отдельная агрегатная выборка: та же форма
-     * данных, что и у события offer.updated, без второго представления.
+     * Та же форма данных, что и у события offer.updated (OfferState), без
+     * второго представления. Список id — отдельный лёгкий запрос, а сами
+     * состояния читаются одним батч-запросом OfferState::forOffers(), а не
+     * циклом OfferState::forOffer() по одному id — цикл был бы N+1: один
+     * запрос на список плюс по одному на каждое предложение позиции.
      */
     public function offers(Request $request): JsonResponse
     {
@@ -55,18 +56,17 @@ final class CatalogController extends Controller
 
         $streamCursor = (new EventBus)->cursor();
 
-        $offers = Offer::query()
+        $offerIds = Offer::query()
             ->where('product_sku', $data['sku'])
             ->where('status', 'active')
-            ->orderBy('price_minor')
-            ->orderBy('id')
             ->pluck('id')
-            ->map(static fn (mixed $offerId): ?array => OfferState::forOffer((int) $offerId)?->toArray())
-            // Предложение теоретически могло исчезнуть между pluck() и
-            // OfferState::forOffer() (например, удалено конкурентно) —
-            // null-элемент отфильтровывается, а не падает в ответ.
-            ->filter()
-            ->values();
+            ->map(static fn (mixed $id): int => (int) $id)
+            ->all();
+
+        $offers = array_map(
+            static fn (OfferState $state): array => $state->toArray(),
+            OfferState::forOffers($offerIds),
+        );
 
         return response()->json([
             'offers' => $offers,
