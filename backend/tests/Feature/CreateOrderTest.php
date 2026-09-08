@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Models\Offer;
 use App\Models\Order;
 use App\Models\Promocode;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -19,6 +20,17 @@ final class CreateOrderTest extends TestCase
         parent::setUp();
         $this->seed();
         Queue::fake();
+    }
+
+    /**
+     * Цена живёт в предложении, не в товаре (задача 4b): тесты на скидку
+     * читают её из офера сида, а не хранят рядом свою копию числа, которая
+     * могла бы разойтись с сидом молча.
+     */
+    private function cheapestActiveOffer(string $sku): Offer
+    {
+        return Offer::query()->where('product_sku', $sku)
+            ->where('status', 'active')->orderBy('price_minor')->firstOrFail();
     }
 
     public function test_repeated_request_with_same_idempotency_key_creates_one_order(): void
@@ -46,43 +58,54 @@ final class CreateOrderTest extends TestCase
 
     public function test_server_calculates_percent_discount(): void
     {
+        $price = $this->cheapestActiveOffer('KEY-CS2-PRIME')->price_minor;
+
         $response = $this->postJson(
             '/api/orders',
             ['sku' => 'KEY-CS2-PRIME', 'promo_code' => 'WELCOME10'],
             ['Idempotency-Key' => 'promo-percent'],
         );
 
+        // WELCOME10 — 10% (см. PromocodeSeeder), округление вниз, как в PromoService.
+        $discount = intdiv($price * 10, 100);
+
         $response->assertCreated()
-            ->assertJsonPath('amount_minor', 129000)
-            ->assertJsonPath('discount_minor', 12900)
-            ->assertJsonPath('total_minor', 116100);
+            ->assertJsonPath('amount_minor', $price)
+            ->assertJsonPath('discount_minor', $discount)
+            ->assertJsonPath('total_minor', $price - $discount);
     }
 
     public function test_server_calculates_fixed_discount(): void
     {
+        $price = $this->cheapestActiveOffer('KEY-CS2-PRIME')->price_minor;
+
         $response = $this->postJson(
             '/api/orders',
             ['sku' => 'KEY-CS2-PRIME', 'promo_code' => 'GG500'],
             ['Idempotency-Key' => 'promo-amount'],
         );
 
+        // GG500 — фиксированные 500 ₽ = 50000 копеек (см. PromocodeSeeder),
+        // от цены товара не зависят.
         $response->assertCreated()
             ->assertJsonPath('discount_minor', 50000)
-            ->assertJsonPath('total_minor', 79000);
+            ->assertJsonPath('total_minor', $price - 50000);
     }
 
     public function test_client_cannot_influence_price_or_discount(): void
     {
+        $price = $this->cheapestActiveOffer('KEY-CS2-PRIME')->price_minor;
+
         $response = $this->postJson(
             '/api/orders',
-            ['sku' => 'KEY-CS2-PRIME', 'amount_minor' => 1, 'discount_minor' => 128999, 'total_minor' => 1],
+            ['sku' => 'KEY-CS2-PRIME', 'amount_minor' => 1, 'discount_minor' => $price - 1, 'total_minor' => 1],
             ['Idempotency-Key' => 'price-tamper'],
         );
 
         $response->assertCreated()
-            ->assertJsonPath('amount_minor', 129000)
+            ->assertJsonPath('amount_minor', $price)
             ->assertJsonPath('discount_minor', 0)
-            ->assertJsonPath('total_minor', 129000);
+            ->assertJsonPath('total_minor', $price);
     }
 
     public function test_double_click_with_promo_consumes_single_use(): void

@@ -8,6 +8,7 @@ use App\Domain\Delivery\DeliveryState;
 use App\Domain\Orders\OrderStatus;
 use App\Jobs\DeliverOrder;
 use App\Models\Delivery;
+use App\Models\Offer;
 use App\Models\Order;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -27,12 +28,19 @@ final class AdminRedeliveryTest extends TestCase
 
     private function order(OrderStatus $status, ?string $code = null): Order
     {
+        // Цена живёт в предложении, не в товаре (задача 4b), а orders.offer_id
+        // теперь NOT NULL — заказ ссылается на реальное активное предложение
+        // сида, а не на константу, оторванную от каталога.
+        $offer = Offer::query()->where('product_sku', 'KEY-CS2-PRIME')
+            ->where('status', 'active')->orderBy('price_minor')->firstOrFail();
+
         return Order::query()->create([
             'id' => 'ord_'.Str::lower((string) Str::ulid()),
             'sku' => 'KEY-CS2-PRIME',
-            'amount_minor' => 129000,
+            'offer_id' => $offer->id,
+            'amount_minor' => $offer->price_minor,
             'discount_minor' => 0,
-            'total_minor' => 129000,
+            'total_minor' => $offer->price_minor,
             'currency' => 'RUB',
             'status' => $status,
             'idempotency_key' => (string) Str::uuid(),

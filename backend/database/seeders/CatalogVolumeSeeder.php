@@ -151,10 +151,12 @@ final class CatalogVolumeSeeder extends Seeder
             [$products, $offerRows] = $this->buildCatalog();
 
             foreach (array_chunk($products, 500) as $chunk) {
+                // price_minor сюда больше не входит: цена живёт только в
+                // предложениях (offers), позиция каталога её не хранит.
                 DB::table('products')->upsert(
                     $chunk,
                     ['sku'],
-                    ['name', 'type', 'price_minor', 'currency', 'image', 'updated_at'],
+                    ['name', 'type', 'currency', 'image', 'updated_at'],
                 );
             }
 
@@ -212,7 +214,6 @@ final class CatalogVolumeSeeder extends Seeder
                         'sku' => $sku,
                         'name' => sprintf('%s — %s (%s)', $title, $platformNames[$platformIndex], self::REGIONS[$regionCode]),
                         'type' => $platform['type'],
-                        'price_minor' => $baseRub * 100,
                         'currency' => 'RUB',
                         'image' => null,
                         'created_at' => $now,
@@ -237,7 +238,6 @@ final class CatalogVolumeSeeder extends Seeder
                     'sku' => $sku,
                     'name' => sprintf('%s (%s)', $title, self::REGIONS[$regionCode]),
                     'type' => 'subscription',
-                    'price_minor' => $baseRub * 100,
                     'currency' => 'RUB',
                     'image' => null,
                     'created_at' => $now,

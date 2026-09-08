@@ -10,7 +10,6 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $sku
  * @property string $name
  * @property string $type
- * @property int $price_minor
  * @property string $currency
  * @property string|null $image
  */
@@ -22,7 +21,8 @@ class Product extends Model
 
     public $incrementing = false;
 
-    protected $fillable = ['sku', 'name', 'type', 'price_minor', 'currency', 'image'];
-
-    protected $casts = ['price_minor' => 'integer'];
+    // Цена сюда больше не пишется: она принадлежит предложению продавца
+    // (App\Models\Offer::price_minor). products.price_minor удалена
+    // миграцией 2026_09_08_000600.
+    protected $fillable = ['sku', 'name', 'type', 'currency', 'image'];
 }

@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Domain\Orders\OrderStatus;
 use App\Domain\Payments\ApplyPaymentEvent;
+use App\Models\Offer;
 use App\Models\Order;
 use App\Models\Promocode;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -217,12 +218,18 @@ final class PaymentWebhookTest extends TestCase
         $this->assertSame(0, $events->applyUnprocessed(0), 'пока заказа нет, событие не трогаем');
 
         // Заказ появляется в обход быстрого пути — ровно то, что даёт гонка.
+        // Цена — из реального активного предложения сида: orders.offer_id
+        // теперь NOT NULL (задача 4b).
+        $offer = Offer::query()->where('product_sku', 'KEY-CS2-PRIME')
+            ->where('status', 'active')->orderBy('price_minor')->firstOrFail();
+
         Order::query()->create([
             'id' => $orderId,
             'sku' => 'KEY-CS2-PRIME',
-            'amount_minor' => 129000,
+            'offer_id' => $offer->id,
+            'amount_minor' => $offer->price_minor,
             'discount_minor' => 0,
-            'total_minor' => 129000,
+            'total_minor' => $offer->price_minor,
             'currency' => 'RUB',
             'status' => OrderStatus::Created,
             'idempotency_key' => (string) Str::uuid(),
