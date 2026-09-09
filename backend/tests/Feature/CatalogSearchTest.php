@@ -98,6 +98,22 @@ final class CatalogSearchTest extends TestCase
         $this->assertSame(12, $first->json('total'));
     }
 
+    /**
+     * search() считает страницу и total одним оператором SQL (задача A16):
+     * страница за пределами данных обязана остаться пустым списком с честным
+     * total, а не 500 — CTE страницы с OFFSET за пределами filtered отдаёт
+     * ноль строк, и COALESCE на json_agg должен превратить это в пустой
+     * список, а не уронить json_decode() на SQL NULL.
+     */
+    public function test_page_beyond_the_last_returns_an_empty_list_with_the_correct_total(): void
+    {
+        $response = $this->getJson('/api/catalog?per_page=5&page=999')->assertOk();
+
+        $this->assertSame([], $response->json('items'));
+        $this->assertSame(12, $response->json('total'));
+        $this->assertSame(999, $response->json('page'));
+    }
+
     public function test_products_endpoint_keeps_first_stage_shape(): void
     {
         $product = collect($this->getJson('/api/products')->assertOk()->json('products'))

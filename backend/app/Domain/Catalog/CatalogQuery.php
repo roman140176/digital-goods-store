@@ -25,15 +25,20 @@ use Illuminate\Support\Facades\DB;
  * планировщика ReleaseExpiredReservations — то расхождение с реальностью,
  * которое требование 1.2 ТЗ запрещает.
  *
- * Один запрос отдаёт страницу позиций, второй — count(*) той же самой
- * выборки для пагинации. У обоих запросов совпадают и WHERE, и LATERAL
- * (buildWhere() и bestOfferLateral() переиспользуются буквально): total
- * обязан значить «сколько позиций прошло ровно тот же фильтр», а не
- * приближение — иначе на фильтре по цене/наличию/продавцу total разошёлся бы
- * со списком. Дороже по подзапросам, чем могло бы быть, но каталог здесь —
- * тысячи предложений, а не миллион (допущение 12.5 спеки: count(*) по всему
- * каталогу — первое, во что упёрлась бы схема при миллионе позиций, и это
- * сознательно оставлено на потом).
+ * Страница позиций и total считаются ОДНИМ оператором SQL, а не двумя
+ * отдельными запросами: общий CTE filtered (WHERE и LATERAL — buildWhere() и
+ * bestOfferLateral(), переиспользуются буквально) материализуется, потому
+ * что на него ссылаются дважды — вложенный CTE страницы (ORDER BY/LIMIT/
+ * OFFSET) и count(*) для total, — и Postgres считает саму выборку один раз
+ * за весь запрос, а не дважды. Один снимок вместо двух отдельных запросов
+ * важен не только производительностью: под конкурентной записью (админские
+ * правки, тик планировщика) два независимых запроса рисковали увидеть два
+ * разных среза данных, и total мог разойтись со списком. total обязан
+ * значить «сколько позиций прошло ровно тот же фильтр», а не приближение —
+ * иначе на фильтре по цене/наличию/продавцу total разошёлся бы со списком.
+ * Каталог здесь — тысячи предложений, а не миллион (допущение 12.5 спеки:
+ * count(*) по всему каталогу — первое, во что упёрлась бы схема при
+ * миллионе позиций, и это сознательно оставлено на потом).
  */
 final class CatalogQuery
 {
@@ -47,29 +52,39 @@ final class CatalogQuery
         $offset = ($filters->page - 1) * $filters->perPage;
         $lateral = $this->bestOfferLateral();
 
-        $rows = DB::select(
-            "SELECT p.sku, p.name, p.type, p.image,
-                    b.offer_id, b.price_minor, b.currency, b.seller_id, b.seller_name,
-                    b.available, b.offers_count
-               FROM products p
-               JOIN LATERAL ({$lateral}) b ON true
-              WHERE {$where}
-              ORDER BY {$order}
-              LIMIT ? OFFSET ?",
+        // filtered ссылается на себя дважды ниже (count(*) и CTE страницы),
+        // поэтому Postgres материализует её по умолчанию — сама выборка с
+        // LATERAL считается один раз за весь оператор. MATERIALIZED здесь не
+        // намёк планировщику, а гарантия: без неё total и items рисковали бы
+        // разойтись, будь materialize-эвристика когда-нибудь другой.
+        // COALESCE на items — json_agg по нулю строк (страница за пределами
+        // данных) возвращает SQL NULL, а не пустой массив.
+        $row = DB::selectOne(
+            "WITH filtered AS MATERIALIZED (
+                    SELECT p.sku, p.name, p.type, p.image,
+                           b.offer_id, b.price_minor, b.currency, b.seller_id, b.seller_name,
+                           b.available, b.offers_count
+                      FROM products p
+                      JOIN LATERAL ({$lateral}) b ON true
+                     WHERE {$where}
+                 ),
+                 page AS (
+                    SELECT *
+                      FROM filtered
+                     ORDER BY {$order}
+                     LIMIT ? OFFSET ?
+                 )
+             SELECT (SELECT count(*) FROM filtered) AS total,
+                    COALESCE((SELECT json_agg(page ORDER BY {$order}) FROM page), '[]') AS items",
             [...$bindings, $filters->perPage, $offset],
         );
 
-        $total = (int) DB::selectOne(
-            "SELECT count(*) AS total
-               FROM products p
-               JOIN LATERAL ({$lateral}) b ON true
-              WHERE {$where}",
-            $bindings,
-        )->total;
-
+        // json_agg отдаёт числа JSON-числами — json_decode() возвращает их
+        // PHP int/float, не строками (проверено эмпирически на этой схеме);
+        // mapRow() всё равно приводит числовые поля явно, как и раньше.
         return [
-            'items' => array_map(self::mapRow(...), $rows),
-            'total' => $total,
+            'items' => array_map(self::mapRow(...), json_decode($row->items)),
+            'total' => (int) $row->total,
         ];
     }
 
@@ -149,23 +164,28 @@ final class CatalogQuery
         return [$conditions === [] ? '1 = 1' : implode(' AND ', $conditions), $bindings];
     }
 
+    /**
+     * Без табличных префиксов: результат используется дважды за пределами
+     * filtered/page (ORDER BY страницы и ORDER BY внутри json_agg), а там
+     * видны только имена колонок CTE (sku, name, price_minor, ...), не
+     * псевдонимы products/offers p/b из bestOfferLateral() и buildWhere().
+     */
     private function buildOrder(string $sort): string
     {
-        // p.sku вторым ключом всегда (кроме самого режима 'sku', где он и
-        // так первый и единственный — sku уникален сам по себе): без
-        // вторичного ключа две позиции с одинаковой ценой лучшего
-        // предложения (или одинаковым именем) могли бы менять порядок между
-        // запросом total и запросом страницы, а на соседних страницах —
-        // теряться или задваиваться. Та же причина, по которой LATERAL выше
-        // сортируется по (price_minor, id).
+        // sku вторым ключом всегда (кроме самого режима 'sku', где он и так
+        // первый и единственный — sku уникален сам по себе): без вторичного
+        // ключа две позиции с одинаковой ценой лучшего предложения (или
+        // одинаковым именем) могли бы менять порядок между total и страницей,
+        // а на соседних страницах — теряться или задваиваться. Та же причина,
+        // по которой LATERAL выше сортируется по (price_minor, id).
         //
         // 'sku' — режим ProductController (CatalogFilters::SORT_SKU), не
         // часть публичного whitelist SORTS: /api/catalog его не отдаёт.
         return match ($sort) {
-            'price_desc' => 'b.price_minor DESC, p.sku',
-            'name' => 'p.name, p.sku',
-            CatalogFilters::SORT_SKU => 'p.sku',
-            default => 'b.price_minor, p.sku',
+            'price_desc' => 'price_minor DESC, sku',
+            'name' => 'name, sku',
+            CatalogFilters::SORT_SKU => 'sku',
+            default => 'price_minor, sku',
         };
     }
 

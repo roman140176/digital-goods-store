@@ -45,6 +45,23 @@ final class AdminOffersTest extends TestCase
         $this->assertSame(111100, $event->payload['price_minor']);
     }
 
+    /**
+     * A21: (int) на голом input тихо приводил "12.7" к 12 вместо отказа —
+     * integer-правило обязано отклонить нецелый ввод понятной 422, а не
+     * округлить его молча, и цена предложения обязана остаться прежней.
+     */
+    public function test_price_rejects_a_non_integer_value(): void
+    {
+        $originalPrice = $this->offer->price_minor;
+
+        $this->postJson("/admin/offers/{$this->offer->id}/price?token=".self::TOKEN,
+            ['price_minor' => '12.7'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('price_minor');
+
+        $this->assertSame($originalPrice, $this->offer->refresh()->price_minor);
+    }
+
     public function test_leave_one_keeps_exactly_one_free_unit(): void
     {
         StockUnit::query()->create(['offer_id' => $this->offer->id, 'state' => 'available']);
@@ -100,6 +117,25 @@ final class AdminOffersTest extends TestCase
         // незавершённым оформлением, а не остатку, которым распоряжается админ.
         $this->assertSame(1, StockUnit::query()->where('offer_id', $this->offer->id)
             ->where('state', 'reserved')->count());
+    }
+
+    /**
+     * A21: та же причина, что и у price() — (int) на "abc" тихо давал 0
+     * вместо отказа. Нечисловой ввод обязан быть отклонён понятной 422, а
+     * не тихо обнулить остаток.
+     */
+    public function test_stock_rejects_a_non_integer_value(): void
+    {
+        $originalAvailable = StockUnit::query()->where('offer_id', $this->offer->id)
+            ->where('state', 'available')->count();
+
+        $this->postJson("/admin/offers/{$this->offer->id}/stock?token=".self::TOKEN,
+            ['units' => 'abc'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('units');
+
+        $this->assertSame($originalAvailable, StockUnit::query()->where('offer_id', $this->offer->id)
+            ->where('state', 'available')->count());
     }
 
     public function test_admin_endpoints_require_the_token(): void

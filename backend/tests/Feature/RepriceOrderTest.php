@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Models\Offer;
 use App\Models\Order;
+use App\Models\Promocode;
 use App\Models\PromoRedemption;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -111,5 +112,39 @@ final class RepriceOrderTest extends TestCase
         // Слот промокода — тот же самый, что и при подорожании: направление
         // изменения цены не влияет на то, что слот один и не перевыделяется.
         $this->assertSame(1, PromoRedemption::query()->where('order_id', $id)->count());
+    }
+
+    /**
+     * A13: недостижимо через штатный API (промокод проверяется целиком при
+     * создании заказа), но достижимо, если код исчезает или меняется ПОСЛЕ
+     * создания заказа — тогда пересчёт скидки внутри RepriceOrder бросает
+     * PromoUnavailable, а reprice() ловил только RepriceRefused и отдавал
+     * 500 вместо понятного отказа.
+     */
+    public function test_reprice_returns_409_when_the_promo_code_became_unavailable(): void
+    {
+        $id = $this->postJson('/api/orders',
+            ['offer_id' => $this->offer->id, 'promo_code' => 'WELCOME10'],
+            ['Idempotency-Key' => 'rp-6'])->assertCreated()->json('id');
+
+        $newPrice = $this->offer->price_minor + 10000;
+        Offer::query()->whereKey($this->offer->id)->update(['price_minor' => $newPrice]);
+
+        // Промокод стал недоступен ПОСЛЕ создания заказа — правкой строки
+        // промокода напрямую, как и предписано брифом задачи. Не удаление:
+        // на код уже ссылается promo_redemptions заказа (FK), удаление
+        // строки упало бы нарушением ограничения. Меняем тип на 'amount' с
+        // чужой валютой — discountFor() бросает currency_mismatch тем же
+        // путём, каким штатно бросил бы not_found на пропавшем коде.
+        Promocode::query()->whereKey('WELCOME10')->update(['type' => 'amount', 'currency' => 'USD']);
+
+        $this->postJson("/api/orders/{$id}/reprice", ['expected_price_minor' => $newPrice])
+            ->assertStatus(409)
+            ->assertJsonPath('reason', 'currency_mismatch')
+            ->assertJsonPath('current_price_minor', $newPrice);
+
+        // Заказ остался нетронутым: PromoUnavailable бросается ДО update()
+        // внутри RepriceOrder, транзакция откатывается целиком.
+        $this->assertSame($this->offer->price_minor, Order::query()->findOrFail($id)->amount_minor);
     }
 }

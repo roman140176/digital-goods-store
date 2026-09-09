@@ -16,10 +16,20 @@ final class FakeSupplier implements Supplier
     /** @var list<string> request_id каждого обращения */
     public array $calls = [];
 
-    /** @param list<SupplierOutcome> $script */
+    /**
+     * @param  list<SupplierOutcome>  $script
+     * @param  int|null  $restockCap  максимум, который restock() готов
+     *                                добавить за один вызов — null (по
+     *                                умолчанию) добавляет ровно запрошенное,
+     *                                как настоящий склад с запасом. Заданное
+     *                                число имитирует усечение на стороне
+     *                                поставщика (см. supplier/public/index.php,
+     *                                /restock и его min(50000, ...)).
+     */
     public function __construct(
         private readonly string $id,
         private array $script,
+        private readonly ?int $restockCap = null,
     ) {}
 
     public function id(): string
@@ -41,6 +51,8 @@ final class FakeSupplier implements Supplier
 
     public function restock(int $count): array
     {
-        return ['supplier' => $this->id, 'added' => $count];
+        $added = $this->restockCap === null ? $count : min($count, $this->restockCap);
+
+        return ['supplier' => $this->id, 'added' => $added];
     }
 }

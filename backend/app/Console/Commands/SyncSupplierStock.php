@@ -58,16 +58,33 @@ final class SyncSupplierStock extends Command
             }
 
             $result = $supplier->restock($missing);
-            $total = (int) ($result['total'] ?? ($current + $missing));
+            $added = (int) ($result['added'] ?? 0);
+            $total = (int) ($result['total'] ?? ($current + $added));
 
             $this->info(sprintf(
                 'Поставщик %s: единиц на складе магазина %d, было ключей %d, добавлено %d, стало %d.',
                 $id,
                 $units,
                 $current,
-                $missing,
+                $added,
                 $total,
             ));
+
+            // /restock молча усекает count верхней границей (заглушка
+            // склада, supplier/public/index.php): запрошенный $missing может
+            // быть больше добавленного $added, и раньше это расходение
+            // никак не сверялось — усечение было не видно вообще. Остаток
+            // не теряется: он останется в $missing на СЛЕДУЮЩЕМ прогоне этой
+            // же команды (цель по-прежнему на STOCK_BUFFER выше факта), но
+            // молчать сейчас об этом не стоит.
+            if ($added !== $missing) {
+                $this->warn(sprintf(
+                    'Поставщик %s: запрошено %d, добавлено %d — расхождение. Остаток доберётся следующим прогоном синхронизации (она самокорректируется).',
+                    $id,
+                    $missing,
+                    $added,
+                ));
+            }
         }
 
         return self::SUCCESS;

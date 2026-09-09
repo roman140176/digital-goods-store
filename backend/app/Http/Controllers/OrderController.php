@@ -10,6 +10,7 @@ use App\Domain\Orders\RepriceOrder;
 use App\Domain\Orders\RepriceRefused;
 use App\Domain\Promo\PromoUnavailable;
 use App\Domain\Stock\SoldOut;
+use App\Models\Offer;
 use App\Models\Order;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -112,6 +113,22 @@ final class OrderController extends Controller
                 },
                 'reason' => $e->reason,
                 'current_price_minor' => $e->currentPriceMinor,
+            ], 409);
+        } catch (PromoUnavailable $e) {
+            // Недостижимо через штатный API (промокод проверяется при
+            // создании заказа), но достижимо, если код исчез или изменился
+            // ПОСЛЕ создания заказа: RepriceOrder пересчитывает скидку через
+            // PromoService::discountFor() и там же может напороться на уже
+            // недоступный код. Тот же формат 409, что и у ветки
+            // RepriceRefused выше — тому же покупателю тот же незавершённый
+            // reprice, отказ обязан быть понятным, а не 500.
+            return response()->json([
+                'message' => match ($e->why) {
+                    'currency_mismatch' => 'Промокод не подходит по валюте.',
+                    default => 'Промокод не найден.',
+                },
+                'reason' => $e->why,
+                'current_price_minor' => (int) Offer::query()->whereKey($order->offer_id)->value('price_minor'),
             ], 409);
         }
 

@@ -29,14 +29,16 @@ final class OfferAdminController extends Controller
     /** Изменить цену предложения. */
     public function price(Request $request, Offer $offer)
     {
-        $priceMinor = (int) $request->input('price_minor');
+        // integer, а не (int) на голом input: "12.7" не должно тихо стать
+        // 12, а "abc" — тихо стать 0, отказ обязан быть понятной 422, а не
+        // молчаливым округлением. min:1 — offers_price_positive всё равно не
+        // пропустит нулевую/отрицательную цену, отказываем раньше похода в
+        // базу понятным полем, а не ошибкой ограничения PostgreSQL.
+        $data = $request->validate([
+            'price_minor' => ['required', 'integer', 'min:1'],
+        ]);
 
-        // offers_price_positive не пропустит нулевую/отрицательную цену —
-        // проверяем раньше похода в базу, чтобы админ увидел понятное
-        // сообщение, а не ошибку ограничения PostgreSQL.
-        if ($priceMinor < 1) {
-            return $this->respond($request, 'Цена должна быть больше нуля.', ['updated' => false], 422);
-        }
+        $priceMinor = (int) $data['price_minor'];
 
         DB::transaction(function () use ($offer, $priceMinor): void {
             $offer->update(['price_minor' => $priceMinor]);
@@ -57,13 +59,31 @@ final class OfferAdminController extends Controller
      */
     public function stock(Request $request, Offer $offer)
     {
-        $target = (int) $request->input('units');
+        // Та же причина, что и у price(): integer вместо (int) на голом
+        // input отклоняет нецелый и нечисловой ввод понятной 422, а не тихо
+        // округляет или обнуляет его. min:0 — тот же порог, что и у прежней
+        // ручной проверки.
+        $data = $request->validate([
+            'units' => ['required', 'integer', 'min:0'],
+        ]);
 
-        if ($target < 0) {
-            return $this->respond($request, 'Остаток не может быть отрицательным.', ['updated' => false], 422);
-        }
+        $target = (int) $data['units'];
 
         DB::transaction(function () use ($offer, $target): void {
+            // Блокируем ВСЕ единицы предложения, а не только available, ДО
+            // подсчёта: иначе планировщик ReleaseExpiredReservations успевает
+            // между подсчётом и записью перевести просроченную бронь
+            // reserved → available — как раз ту строку, которую подсчёт
+            // available не видел, — и итог расходится с запрошенным target
+            // (см. race-reserve-vs-expire, scripts/race-reserve-vs-expire.php).
+            // ORDER BY id — без него два параллельных вызова на одно
+            // предложение (stock/leaveOne) брали бы блокировки в разном
+            // порядке и рисковали встать в дедлок.
+            DB::select(
+                'SELECT id FROM stock_units WHERE offer_id = ? ORDER BY id FOR UPDATE',
+                [$offer->id],
+            );
+
             $available = (int) DB::scalar(
                 "SELECT count(*) FROM stock_units WHERE offer_id = ? AND state = 'available'",
                 [$offer->id],
@@ -142,6 +162,15 @@ final class OfferAdminController extends Controller
     public function leaveOne(Request $request, Offer $offer)
     {
         DB::transaction(function () use ($offer): void {
+            // Та же блокировка на ВСЕ единицы предложения, что и в stock(),
+            // и по той же причине: без неё этот метод читает available тем
+            // же неатомарным способом и рискует разойтись с планировщиком
+            // ReleaseExpiredReservations между чтением и записью.
+            DB::select(
+                'SELECT id FROM stock_units WHERE offer_id = ? ORDER BY id FOR UPDATE',
+                [$offer->id],
+            );
+
             $availableIds = DB::select(
                 "SELECT id FROM stock_units WHERE offer_id = ? AND state = 'available' ORDER BY id",
                 [$offer->id],

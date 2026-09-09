@@ -40,7 +40,19 @@ final class ReservationTest extends TestCase
             ->assertJsonPath('offer.available', 0);
 
         $this->assertNotNull($response->json('reservation.expires_at'));
-        $this->assertGreaterThan(0, $response->json('reservation.seconds_left'));
+
+        // TTL брони — 300 секунд (config('store.reservation_ttl')).
+        // seconds_left обязан НИКОГДА не занижать остаток (A9, OrderPresenter
+        // ::reservation()): ceil() честной (плавающей) разницы гарантирует
+        // это математически. Не ровно 300 детерминированно: reserved_until —
+        // timestamp(0), и Postgres ОКРУГЛЯЕТ дедлайн до целой секунды
+        // (проверено эмпирически: '12:00:00.500'::timestamp(0) = '12:00:01',
+        // не '12:00:00'), поэтому в зависимости от доли секунды, в которую
+        // попала запись брони, округлённый вверх остаток — 300 либо 301, но
+        // никогда меньше.
+        $secondsLeft = $response->json('reservation.seconds_left');
+        $this->assertGreaterThanOrEqual(300, $secondsLeft);
+        $this->assertLessThanOrEqual(301, $secondsLeft);
 
         $units = StockUnit::query()->where('offer_id', $this->hot->id)->get();
         $this->assertCount(1, $units);
