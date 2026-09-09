@@ -122,13 +122,21 @@ final class OrderController extends Controller
             // недоступный код. Тот же формат 409, что и у ветки
             // RepriceRefused выше — тому же покупателю тот же незавершённый
             // reprice, отказ обязан быть понятным, а не 500.
+            $currentPriceMinor = Offer::query()->whereKey($order->offer_id)->value('price_minor');
+
             return response()->json([
                 'message' => match ($e->why) {
                     'currency_mismatch' => 'Промокод не подходит по валюте.',
                     default => 'Промокод не найден.',
                 },
                 'reason' => $e->why,
-                'current_price_minor' => (int) Offer::query()->whereKey($order->offer_id)->value('price_minor'),
+                // value() — null, только если предложение исчезло совсем (в
+                // проекте предложения не удаляются, только скрываются —
+                // сюда попасть не должно никогда, но молчаливое (int) null
+                // === 0 увело бы согласие покупателя в заведомо неверную
+                // сумму; amount_minor заказа — тот же порядок величины и
+                // всегда есть).
+                'current_price_minor' => $currentPriceMinor !== null ? (int) $currentPriceMinor : $order->amount_minor,
             ], 409);
         }
 

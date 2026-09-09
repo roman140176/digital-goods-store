@@ -49,6 +49,10 @@ final class AdminOffersTest extends TestCase
      * A21: (int) на голом input тихо приводил "12.7" к 12 вместо отказа —
      * integer-правило обязано отклонить нецелый ввод понятной 422, а не
      * округлить его молча, и цена предложения обязана остаться прежней.
+     * Форма ответа — respond()'а этой ручки (message/updated), не стандартный
+     * errors-конверт Laravel: см. test_price_shows_a_visible_message_for_a_
+     * non_json_invalid_request ниже и её докблок про единственный канал
+     * сообщений страницы.
      */
     public function test_price_rejects_a_non_integer_value(): void
     {
@@ -57,7 +61,30 @@ final class AdminOffersTest extends TestCase
         $this->postJson("/admin/offers/{$this->offer->id}/price?token=".self::TOKEN,
             ['price_minor' => '12.7'])
             ->assertStatus(422)
-            ->assertJsonValidationErrors('price_minor');
+            ->assertJsonPath('updated', false)
+            ->assertJsonPath('message', 'Цена должна быть целым числом больше нуля.');
+
+        $this->assertSame($originalPrice, $this->offer->refresh()->price_minor);
+    }
+
+    /**
+     * Фикс-раунд 1, Important 2: единственный человеческий вход в эту ручку —
+     * обычная HTML-форма (resources/views/admin/orders.blade.php), обычный
+     * POST без fetch и без Accept: application/json — $request->expectsJson()
+     * для неё ложно. До валидации Validator::make()+respond() отказ уходил
+     * бы через $request->validate() в редирект с ошибками в сессии, которые
+     * некому показать (@error и $errors нигде в blade не рендерятся,
+     * единственный канал — session('status') в orders.blade.php:27-28):
+     * админ увидел бы молчаливую перезагрузку страницы без единого слова.
+     */
+    public function test_price_shows_a_visible_message_for_a_non_json_invalid_request(): void
+    {
+        $originalPrice = $this->offer->price_minor;
+
+        $this->post("/admin/offers/{$this->offer->id}/price?token=".self::TOKEN,
+            ['price_minor' => '12.7'])
+            ->assertRedirect()
+            ->assertSessionHas('status', 'Цена должна быть целым числом больше нуля.');
 
         $this->assertSame($originalPrice, $this->offer->refresh()->price_minor);
     }
@@ -132,7 +159,28 @@ final class AdminOffersTest extends TestCase
         $this->postJson("/admin/offers/{$this->offer->id}/stock?token=".self::TOKEN,
             ['units' => 'abc'])
             ->assertStatus(422)
-            ->assertJsonValidationErrors('units');
+            ->assertJsonPath('updated', false)
+            ->assertJsonPath('message', 'Остаток должен быть целым числом не меньше нуля.');
+
+        $this->assertSame($originalAvailable, StockUnit::query()->where('offer_id', $this->offer->id)
+            ->where('state', 'available')->count());
+    }
+
+    /**
+     * Фикс-раунд 1, Important 2: та же причина, что и у
+     * test_price_shows_a_visible_message_for_a_non_json_invalid_request —
+     * обычная HTML-форма без Accept: application/json не должна тихо
+     * перезагрузиться без сообщения.
+     */
+    public function test_stock_shows_a_visible_message_for_a_non_json_invalid_request(): void
+    {
+        $originalAvailable = StockUnit::query()->where('offer_id', $this->offer->id)
+            ->where('state', 'available')->count();
+
+        $this->post("/admin/offers/{$this->offer->id}/stock?token=".self::TOKEN,
+            ['units' => 'abc'])
+            ->assertRedirect()
+            ->assertSessionHas('status', 'Остаток должен быть целым числом не меньше нуля.');
 
         $this->assertSame($originalAvailable, StockUnit::query()->where('offer_id', $this->offer->id)
             ->where('state', 'available')->count());

@@ -41,17 +41,22 @@ final class ReservationTest extends TestCase
 
         $this->assertNotNull($response->json('reservation.expires_at'));
 
-        // TTL брони — 300 секунд (config('store.reservation_ttl')).
-        // seconds_left обязан НИКОГДА не занижать остаток (A9, OrderPresenter
-        // ::reservation()): ceil() честной (плавающей) разницы гарантирует
-        // это математически. Не ровно 300 детерминированно: reserved_until —
-        // timestamp(0), и Postgres ОКРУГЛЯЕТ дедлайн до целой секунды
-        // (проверено эмпирически: '12:00:00.500'::timestamp(0) = '12:00:01',
-        // не '12:00:00'), поэтому в зависимости от доли секунды, в которую
-        // попала запись брони, округлённый вверх остаток — 300 либо 301, но
-        // никогда меньше.
+        // TTL брони — 300 секунд (config('store.reservation_ttl')). Нижняя
+        // граница здесь НЕ может быть строго 300: reserved_until пишет
+        // PostgreSQL внутри SQL (StockService::reserve(), now() + interval),
+        // а now() в Postgres — время НАЧАЛА транзакции, не текущего
+        // момента. RefreshDatabase держит весь тест в одной транзакции,
+        // открытой в parent::setUp() ДО seed() и ДО этого запроса, — дедлайн
+        // отсчитан от момента BEGIN, а seconds_left в OrderPresenter считает
+        // от ЖИВЫХ часов PHP на момент ответа. Между BEGIN и ответом проходит
+        // реальное настенное время (seed + обработка запроса), и оно съедает
+        // секунды остатка — 300 тут не инвариант, а частный случай почти
+        // нулевой задержки. 290 — заведомо безопасный запас на реальную
+        // длительность теста, не инвариант поведения; 301 — верхняя граница
+        // от ceil() (Postgres округляет timestamp(0) до целой секунды не
+        // больше чем на полсекунды в любую сторону).
         $secondsLeft = $response->json('reservation.seconds_left');
-        $this->assertGreaterThanOrEqual(300, $secondsLeft);
+        $this->assertGreaterThanOrEqual(290, $secondsLeft);
         $this->assertLessThanOrEqual(301, $secondsLeft);
 
         $units = StockUnit::query()->where('offer_id', $this->hot->id)->get();

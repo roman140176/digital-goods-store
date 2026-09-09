@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Offer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 
 /**
  * Управление ценой, остатком и видимостью предложения — служебные ручки
@@ -30,15 +31,28 @@ final class OfferAdminController extends Controller
     public function price(Request $request, Offer $offer)
     {
         // integer, а не (int) на голом input: "12.7" не должно тихо стать
-        // 12, а "abc" — тихо стать 0, отказ обязан быть понятной 422, а не
-        // молчаливым округлением. min:1 — offers_price_positive всё равно не
-        // пропустит нулевую/отрицательную цену, отказываем раньше похода в
-        // базу понятным полем, а не ошибкой ограничения PostgreSQL.
-        $data = $request->validate([
+        // 12, а "abc" — тихо стать 0. min:1 — offers_price_positive всё
+        // равно не пропустит нулевую/отрицательную цену, отказываем раньше
+        // похода в базу понятным полем, а не ошибкой ограничения PostgreSQL.
+        //
+        // Validator::make() + respond() вместо $request->validate(): у этой
+        // страницы ОДИН канал сообщений — respond()/session('status')
+        // (admin/orders.blade.php не рендерит $errors и @error нигде).
+        // Форма ниже — обычный HTML POST без fetch и без Accept:
+        // application/json, поэтому $request->expectsJson() для неё ложно,
+        // и $request->validate() увёл бы отказ в редирект с ошибками в
+        // сессии, которые некому показать: страница молча перезагрузилась
+        // бы без единого слова — тихое округление превратилось бы в тихое
+        // ничего.
+        $validator = Validator::make($request->all(), [
             'price_minor' => ['required', 'integer', 'min:1'],
         ]);
 
-        $priceMinor = (int) $data['price_minor'];
+        if ($validator->fails()) {
+            return $this->respond($request, 'Цена должна быть целым числом больше нуля.', ['updated' => false], 422);
+        }
+
+        $priceMinor = (int) $validator->validated()['price_minor'];
 
         DB::transaction(function () use ($offer, $priceMinor): void {
             $offer->update(['price_minor' => $priceMinor]);
@@ -59,15 +73,19 @@ final class OfferAdminController extends Controller
      */
     public function stock(Request $request, Offer $offer)
     {
-        // Та же причина, что и у price(): integer вместо (int) на голом
-        // input отклоняет нецелый и нечисловой ввод понятной 422, а не тихо
-        // округляет или обнуляет его. min:0 — тот же порог, что и у прежней
-        // ручной проверки.
-        $data = $request->validate([
+        // Та же причина, что и у price() — integer вместо (int) на голом
+        // input, и Validator::make() + respond() вместо $request->validate()
+        // (единственный канал сообщений страницы, обычная HTML-форма без
+        // Accept: application/json — см. комментарий в price()).
+        $validator = Validator::make($request->all(), [
             'units' => ['required', 'integer', 'min:0'],
         ]);
 
-        $target = (int) $data['units'];
+        if ($validator->fails()) {
+            return $this->respond($request, 'Остаток должен быть целым числом не меньше нуля.', ['updated' => false], 422);
+        }
+
+        $target = (int) $validator->validated()['units'];
 
         DB::transaction(function () use ($offer, $target): void {
             // Блокируем ВСЕ единицы предложения, а не только available, ДО
@@ -79,6 +97,20 @@ final class OfferAdminController extends Controller
             // ORDER BY id — без него два параллельных вызова на одно
             // предложение (stock/leaveOne) брали бы блокировки в разном
             // порядке и рисковали встать в дедлок.
+            //
+            // Два следствия этой блокировки — цена приёма из брифа задачи,
+            // а не побочный эффект, который здесь упущен:
+            // 1) в PostgreSQL нет gap-локов — FOR UPDATE по существующим
+            //    строкам offer_id не мешает параллельной ВСТАВКЕ новой
+            //    единицы этого же предложения. Инвариант держится не
+            //    блокировкой, а тем, что строки stock_units вставляют
+            //    только эти же админские методы и сидеры — конкурирующего
+            //    писателя, которого нужно было бы заблокировать, нет.
+            // 2) пока эта транзакция держит все единицы, StockService::
+            //    reserve() со своим FOR UPDATE SKIP LOCKED получит на них
+            //    NULL, и покупатель может увидеть ложный sold_out — окно
+            //    равно длительности именно этой транзакции (обычно доли
+            //    миллисекунды, а не всего запроса).
             DB::select(
                 'SELECT id FROM stock_units WHERE offer_id = ? ORDER BY id FOR UPDATE',
                 [$offer->id],
