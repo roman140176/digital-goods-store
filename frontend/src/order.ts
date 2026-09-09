@@ -84,10 +84,19 @@ function renderMissing(message: string): void {
   }
 }
 
-/** Остаток брони в формате «M:SS», посчитанный от expires_at, а не от засыпающего seconds_left (см. докблок countdownTimer). */
+/**
+ * Остаток брони в формате «M:SS», посчитанный от expires_at, а не от
+ * засыпающего seconds_left (см. докблок countdownTimer).
+ *
+ * Вверх, а не вниз: дедлайн пишет база временем НАЧАЛА транзакции брони и
+ * хранит его с точностью до секунды, поэтому уже в первом кадре остаток
+ * меньше пяти минут на доли секунды — с floor покупатель видел бы «4:59»
+ * сразу после создания заказа. Тем же ceil считает серверное seconds_left
+ * (OrderPresenter), так что число на странице и число в API не расходятся.
+ */
 function formatCountdown(expiresAtIso: string): string {
   const remainingMs = new Date(expiresAtIso).getTime() - Date.now()
-  const totalSeconds = Math.max(0, Math.floor(remainingMs / 1000))
+  const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1000))
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
 
