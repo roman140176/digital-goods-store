@@ -59,11 +59,34 @@ const CARDS_PER_ROW = 5
 const ROW_SELECTORS = ['[data-cards="popular"]', '[data-cards="recommended"]', '[data-cards="other"]'] as const
 const TOTAL_CARDS = CARDS_PER_ROW * ROW_SELECTORS.length
 
-/** Три ряда по пять карточек срезами по одному запросу — без хождения по кругу, позиций теперь хватает. */
+/**
+ * Три ряда по пять карточек одним запросом. Пока позиций хватает (объёмный
+ * каталог, make seed-catalog) ряды идут простыми срезами и не повторяются; на
+ * стандартном сиде ТЗ позиций двенадцать, и без добора по кругу третий ряд
+ * показывал бы две карточки из пяти — а макет требует пять. Поэтому короткий
+ * каталог заполняет ряды по кругу, как на первом этапе.
+ */
 function renderRows(items: readonly CatalogItem[]): void {
   ROW_SELECTORS.forEach((selector, rowIndex) => {
-    const slice = items.slice(rowIndex * CARDS_PER_ROW, (rowIndex + 1) * CARDS_PER_ROW)
-    renderProductCards(requireElement(selector), slice, buyOffer)
+    const start = rowIndex * CARDS_PER_ROW
+
+    if (items.length >= TOTAL_CARDS) {
+      renderProductCards(requireElement(selector), items.slice(start, start + CARDS_PER_ROW), buyOffer)
+
+      return
+    }
+
+    const cycled: CatalogItem[] = []
+
+    for (let index = 0; index < CARDS_PER_ROW && items.length > 0; index += 1) {
+      const item = items[(start + index) % items.length]
+
+      if (item !== undefined) {
+        cycled.push(item)
+      }
+    }
+
+    renderProductCards(requireElement(selector), cycled, buyOffer)
   })
 }
 

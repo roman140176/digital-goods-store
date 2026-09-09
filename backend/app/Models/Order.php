@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Domain\Orders\OrderStatus;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -19,11 +20,11 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property string|null $promo_code
  * @property OrderStatus $status
  * @property string $idempotency_key
- * @property \Carbon\CarbonInterface|null $last_event_at
+ * @property CarbonInterface|null $last_event_at
  * @property string|null $paid_event_id
  * @property string|null $delivered_code
  * @property string|null $delivered_by
- * @property \Carbon\CarbonInterface|null $delivered_at
+ * @property CarbonInterface|null $delivered_at
  */
 class Order extends Model
 {

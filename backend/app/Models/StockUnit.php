@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -12,8 +13,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $offer_id
  * @property string $state
  * @property string|null $reserved_order_id
- * @property \Carbon\CarbonInterface|null $reserved_until
- * @property \Carbon\CarbonInterface|null $sold_at
+ * @property CarbonInterface|null $reserved_until
+ * @property CarbonInterface|null $sold_at
  */
 class StockUnit extends Model
 {

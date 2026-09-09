@@ -182,12 +182,19 @@ export async function repriceOrder(id: string, expectedPriceMinor: number): Prom
   return parse<Order>(response)
 }
 
-/** Эмулятор оплаты: реального эквайринга нет, ручка шлёт вебхук по контракту. */
-export async function simulatePayment(id: string, result: 'success' | 'fail'): Promise<void> {
+/**
+ * Эмулятор оплаты: реального эквайринга нет, ручка шлёт вебхук по контракту.
+ *
+ * Тело ответа возвращается наружу, а не выбрасывается: ручка отвечает 200,
+ * даже когда САМ вебхук ответил ошибкой, и настоящий исход лежит в
+ * webhook_status. Без него любой 5xx применения (например, конфликт
+ * блокировок с тиком освобождения брони) выглядел бы для страницы успехом.
+ */
+export async function simulatePayment(id: string, result: 'success' | 'fail'): Promise<{ webhook_status?: number }> {
   const response = await fetch(endpoint(`/dev/pay/${encodeURIComponent(id)}?result=${result}`), {
     method: 'POST',
     headers: { Accept: 'application/json' },
   })
 
-  await parse<unknown>(response)
+  return parse<{ webhook_status?: number }>(response)
 }

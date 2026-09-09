@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -19,7 +20,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $topic
  * @property string $type
  * @property array $payload
- * @property \Carbon\CarbonInterface $created_at
+ * @property CarbonInterface $created_at
  */
 class StreamEvent extends Model
 {

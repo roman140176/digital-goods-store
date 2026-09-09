@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $code
  * @property string $order_id
  * @property int $discount_minor
- * @property \Carbon\CarbonInterface|null $released_at
+ * @property CarbonInterface|null $released_at
  */
 class PromoRedemption extends Model
 {

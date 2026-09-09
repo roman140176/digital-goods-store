@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Domain\Delivery\DeliveryState;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -17,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $supplier
  * @property string|null $code
  * @property string|null $last_error
- * @property \Carbon\CarbonInterface|null $locked_until
+ * @property CarbonInterface|null $locked_until
  */
 class Delivery extends Model
 {

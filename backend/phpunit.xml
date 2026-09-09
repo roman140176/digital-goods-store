@@ -26,10 +26,13 @@
         <!-- Тесты идут на PostgreSQL: миграции и логика гонок используют его
              специфику (частичные уникальные индексы, FILTER, jsonb, интервалы).
 
-             force="true" обязателен: docker compose отдаёт backend/.env в
-             контейнер настоящими переменными окружения, а PHPUnit без force
-             существующие переменные не перебивает. Без него тесты шли бы по
-             базе `store` и RefreshDatabase стирал бы данные витрины. -->
+             force="true" нужен, но НЕ достаточен: docker compose отдаёт
+             backend/.env в контейнер настоящими переменными окружения, и на
+             пути `php artisan test` база всё равно разрешается в `store`
+             (проверено: гард в tests/TestCase.php срабатывает именно там).
+             Поэтому цель `make test` подставляет базу явными -e, а гард в
+             базовом классе тестов не даёт RefreshDatabase стереть витрину,
+             каким бы способом тесты ни запустили. -->
         <env name="DB_CONNECTION" value="pgsql" force="true"/>
         <env name="DB_DATABASE" value="store_test" force="true"/>
         <env name="DB_URL" value="" force="true"/>

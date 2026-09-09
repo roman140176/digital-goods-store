@@ -183,7 +183,16 @@ final class StockService
                WHERE u.state = 'reserved' AND u.reserved_until <= now()
                  AND o.status = 'created'
                ORDER BY u.reserved_until
-               FOR UPDATE OF u SKIP LOCKED
+               -- Блокируется И заказ (o), а не только единица: применение
+               -- оплаты берёт локи в обратном порядке (сначала заказ
+               -- lockForUpdate, потом его единица в sellForOrder), и захват
+               -- одной единицы дал бы классический цикл — deadlock 40P01, то
+               -- есть 500 на вебхуке вместо честного исхода. С обоими
+               -- отношениями в FOR UPDATE ... SKIP LOCKED тик просто
+               -- ПРОПУСКАЕТ единицу заказа, который прямо сейчас платят, и
+               -- освободит её следующим проходом — освобождение и так
+               -- периодическая уборка, а не гонка за миллисекунды.
+               FOR UPDATE OF u, o SKIP LOCKED
                LIMIT ?)
             UPDATE stock_units s
                SET state = 'available', reserved_order_id = NULL,

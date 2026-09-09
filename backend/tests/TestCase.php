@@ -34,7 +34,7 @@ abstract class TestCase extends BaseTestCase
         if (! is_string($database) || ! str_ends_with($database, '_test')) {
             throw new RuntimeException(sprintf(
                 'Тесты подключены к базе «%s», а это не тестовая база: RefreshDatabase снёс бы её данные. '
-                ."Запускайте `make test` — он подставляет store_test явными переменными окружения. "
+                .'Запускайте `make test` — он подставляет store_test явными переменными окружения. '
                 .'Точечный прогон: docker compose exec -T -e APP_ENV=testing -e DB_DATABASE=store_test '
                 .'-e QUEUE_CONNECTION=sync app php artisan test --filter=...',
                 $database ?? 'null',

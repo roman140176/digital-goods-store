@@ -135,9 +135,18 @@ function reservationBlock(order: Order): string {
   return `<div class="order-reservation" data-reservation>Бронь действует ещё ${esc(formatCountdown(order.reservation.expires_at))}</div>`
 }
 
-/** Кнопки оплаты заблокированы, пока новая цена не принята: сервер и так откажет 409, но отказ незачем показывать (1.3 ТЗ). */
+/**
+ * Кнопки оплаты заблокированы, пока новая цена не принята: сервер и так
+ * откажет 409, но отказ незачем показывать (1.3 ТЗ).
+ *
+ * Гард по статусу обязателен: latestOfferPrice обновляется из ЛЮБОГО
+ * offer.updated по этому предложению, независимо от судьбы заказа. Без него
+ * на уже выданном заказе (код на экране) смена цены в админке рисовала бы
+ * плашку «Цена изменилась» с кнопкой оплаты — сервер такой reprice отклонит
+ * (order_not_repriceable), но предлагать доплату за купленный ключ нельзя.
+ */
 function priceChanged(order: Order): boolean {
-  return latestOfferPrice !== null && latestOfferPrice !== order.amount_minor
+  return order.status === 'created' && latestOfferPrice !== null && latestOfferPrice !== order.amount_minor
 }
 
 function priceChangeBlock(order: Order): string {
@@ -374,7 +383,21 @@ async function pay(id: string, result: 'success' | 'fail'): Promise<void> {
   render()
 
   try {
-    await simulatePayment(id, result)
+    const { webhook_status: webhookStatus } = await simulatePayment(id, result)
+
+    // Ручка эмулятора отвечает 200 и в том случае, когда вебхук не применился:
+    // судьба платежа лежит в webhook_status. Молчать об этом нельзя — кнопки
+    // остались бы погашенными навсегда при неизменившемся статусе. Повторное
+    // нажатие безопасно: event_id детерминирован, а незавершённую запись
+    // доводит до конца сервер (handleRepeat) или реконсилятор.
+    if (typeof webhookStatus === 'number' && webhookStatus >= 500) {
+      paymentSent = false
+      notify('Оплата не подтвердилась, попробуйте ещё раз.')
+      render()
+
+      return
+    }
+
     // После оплаты состояние меняется быстро: если опрос ещё активен,
     // пусть догонит немедленно, а не ждёт текущий (уже подросший) интервал.
     pollDelay = POLL_MS

@@ -108,26 +108,27 @@ export function renderProductCards(
  * 15 показанных позиций) — тихий no-op, а не ошибка: событие каталога
  * приходит по ВСЕМ предложениям витрины (см. допущение 12.1 спеки), а не
  * только по видимым.
+ *
+ * Обновляются ВСЕ копии карточки, а не первая найденная: на коротком каталоге
+ * ряды витрины заполняются по кругу (см. renderRows), и одно предложение
+ * присутствует на экране дважды — обновление только первой копии оставило бы
+ * вторую с устаревшей ценой.
  */
 export function applyOfferState(state: Offer): void {
-  const card = document.querySelector<HTMLElement>(`[data-offer-id="${state.offer_id}"]`)
+  document.querySelectorAll<HTMLElement>(`[data-offer-id="${state.offer_id}"]`).forEach((card) => {
+    const priceNode = card.querySelector<HTMLElement>('[data-price]')
+    const availableNode = card.querySelector<HTMLElement>('[data-available]')
 
-  if (card === null) {
-    return
-  }
+    if (priceNode !== null) {
+      priceNode.textContent = money(state.price_minor, state.currency)
+    }
 
-  const priceNode = card.querySelector<HTMLElement>('[data-price]')
-  const availableNode = card.querySelector<HTMLElement>('[data-available]')
+    if (availableNode !== null) {
+      availableNode.textContent = String(state.available)
+    }
 
-  if (priceNode !== null) {
-    priceNode.textContent = money(state.price_minor, state.currency)
-  }
-
-  if (availableNode !== null) {
-    availableNode.textContent = String(state.available)
-  }
-
-  setCardAvailability(card, state.available > 0 && state.status === 'active')
+    setCardAvailability(card, state.available > 0 && state.status === 'active')
+  })
 }
 
 /**
@@ -137,13 +138,9 @@ export function applyOfferState(state: Offer): void {
  * что и настоящий sold_out.
  */
 export function applyOfferGone(offerId: number): void {
-  const card = document.querySelector<HTMLElement>(`[data-offer-id="${offerId}"]`)
-
-  if (card === null) {
-    return
-  }
-
-  setCardAvailability(card, false)
+  document.querySelectorAll<HTMLElement>(`[data-offer-id="${offerId}"]`).forEach((card) => {
+    setCardAvailability(card, false)
+  })
 }
 
 function setCardAvailability(card: HTMLElement, available: boolean): void {
